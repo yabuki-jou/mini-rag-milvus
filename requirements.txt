@@ -1,0 +1,16 @@
+## Web 与配置
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+pydantic-settings==2.14.2
+
+## SQLite
+sqlmodel==0.0.39
+
+## Embedding
+langchain-huggingface==1.2.2
+sentence-transformers==5.6.0
+
+## Milvus
+langchain-milvus==0.4.0
+pymilvus==3.0.0
+
