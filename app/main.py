@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.db import create_db_and_tables
-from app.routers import health
+from app.routers import documents, health, knowledge_bases, users
 
 
 @asynccontextmanager
@@ -27,3 +27,6 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.include_router(health.router)
+app.include_router(users.router)
+app.include_router(knowledge_bases.router)
+app.include_router(documents.router)

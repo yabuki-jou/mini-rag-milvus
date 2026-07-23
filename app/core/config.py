@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         app_name: Swagger 标题和应用名称。
         app_env: 当前运行环境，例如 ``development`` 或 ``production``。
         database_url: SQLModel 数据库连接地址。
+        file_storage_dir: 上传原文件的本地存储目录。
         milvus_uri: Milvus 服务地址。
         milvus_token: Milvus 认证令牌。
         milvus_collection: 保存所有知识库 Chunk 的 Collection 名称。
@@ -38,6 +39,7 @@ class Settings(BaseSettings):
     app_name: str = "Mini RAG Milvus"
     app_env: str = "development"
     database_url: str = "sqlite:///./data/handwrite.db"
+    file_storage_dir: Path = Path("./data/files")
 
     milvus_uri: str = "http://localhost:19530"
     milvus_token: SecretStr | None = SecretStr("root:Milvus")
@@ -63,6 +65,11 @@ class Settings(BaseSettings):
     def embedding_path(self) -> Path:
         """本地 Embedding 模型目录的绝对路径。"""
         return self.resolve_path(self.embedding_model_path)
+
+    @property
+    def file_storage_path(self) -> Path:
+        """上传原文件目录的绝对路径。"""
+        return self.resolve_path(self.file_storage_dir)
 
     @property
     def milvus_connection_args(self) -> dict[str, str]:
