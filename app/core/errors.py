@@ -28,6 +28,7 @@ class AppError(Exception):
             code: 供客户端判断错误类型的稳定代码。
             message: 可展示给客户端的错误信息。
         """
+        # 同时保存 HTTP 语义和稳定业务代码，供统一异常处理器构造响应。
         self.status_code = status_code
         self.code = code
         self.message = message
@@ -35,10 +36,16 @@ class AppError(Exception):
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """为 FastAPI 应用注册统一的异常处理器。"""
+    """为 FastAPI 应用注册统一的异常处理器。
+
+    Args:
+        app: 需要安装异常处理器的 FastAPI 应用。
+    """
 
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+        """将预期业务异常转换为稳定且可安全展示的响应。"""
+        # 业务异常的状态码、错误代码和消息都由抛出位置明确指定。
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -54,6 +61,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         _: Request,
         exc: RequestValidationError,
     ) -> JSONResponse:
+        """将 FastAPI 参数校验异常转换为统一的 422 响应。"""
+        # jsonable_encoder 将 Pydantic 错误中的特殊对象转换为 JSON 数据。
         return JSONResponse(
             status_code=422,
             content={
@@ -67,6 +76,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def exception(_: Request, exc: Exception) -> JSONResponse:
+        """记录未知异常的完整堆栈，并向客户端隐藏内部细节。"""
+        # 完整细节只进入服务端日志，响应中不暴露数据库或密钥等信息。
         logger.exception("unhandled application error", exc_info=exc)
         return JSONResponse(
             status_code=500,

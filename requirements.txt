@@ -2,6 +2,7 @@
 fastapi==0.139.0
 uvicorn[standard]==0.51.0
 pydantic-settings==2.14.2
+python-multipart==0.0.32
 
 ## SQLite
 sqlmodel==0.0.39
@@ -13,4 +14,8 @@ sentence-transformers==5.6.0
 ## Milvus
 langchain-milvus==0.4.0
 pymilvus==3.0.0
+
+pypdf
+python-docx
+langchain-text-splitters
 

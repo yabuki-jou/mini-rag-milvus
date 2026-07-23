@@ -16,12 +16,20 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 def health_check(response: Response) -> HealthResponse:
-    """检查 API、数据库、Milvus 和 Embedding 是否可用。"""
+    """独立检查 API、数据库、Milvus 和 Embedding 是否可用。
+
+    Args:
+        response: FastAPI 响应对象，用于在组件异常时设置 HTTP 503。
+
+    Returns:
+        应用整体状态以及每个依赖组件的检查结果。
+    """
     components: dict[str, HealthComponent] = {
         "api": HealthComponent(status="ok"),
     }
 
     # 每项检查相互独立，避免一个组件失败后跳过其他组件。
+    # 执行最小 SQL，验证 Engine 能够真正访问数据库。
     try:
         with engine.connect() as connection:
             connection.exec_driver_sql("SELECT 1").scalar_one()
@@ -33,6 +41,7 @@ def health_check(response: Response) -> HealthResponse:
             detail="数据库连接失败",
         )
 
+    # 只列出 Collection，不在健康检查中创建或修改 Milvus 数据。
     try:
         collections = list_collections()
         components["milvus"] = HealthComponent(
@@ -46,6 +55,7 @@ def health_check(response: Response) -> HealthResponse:
             detail="Milvus 连接失败",
         )
 
+    # 生成一个真实向量，同时验证模型加载和输出维度。
     try:
         vector = get_embeddings().embed_query("健康检查")
         if len(vector) != settings.embedding_dimension:
@@ -61,10 +71,12 @@ def health_check(response: Response) -> HealthResponse:
             detail="Embedding 模型不可用",
         )
 
+    # 只有所有依赖都正常时，应用整体状态才是健康。
     is_healthy = all(
         component.status == "ok" for component in components.values()
     )
 
+    # 组件异常时保留各项检查结果，同时通过 HTTP 503 提醒监控系统。
     if not is_healthy:
         response.status_code = 503
 
