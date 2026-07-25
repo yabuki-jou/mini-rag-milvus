@@ -2,8 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
         deepseek_api_key: DeepSeek API 密钥。
         deepseek_base_url: DeepSeek 的 OpenAI 兼容接口地址。
         deepseek_model: 生成回答所使用的模型名称。
+        retrieval_top_k: Milvus 第一轮最多召回的候选 Chunk 数量。
+        retrieval_top_n: 通过阈值后最多返回的 Chunk 数量。
+        retrieval_score_threshold: Chunk 进入最终结果所需的最低相似度。
     """
 
     # 从项目根目录读取 .env；忽略暂未使用的变量，且变量名不区分大小写。
@@ -66,6 +70,34 @@ class Settings(BaseSettings):
     deepseek_api_key: SecretStr | None = None
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     deepseek_model: str = "deepseek-chat"
+
+    # 检索时先召回 Top-K 个候选，再按相似度阈值过滤并截取 Top-N 个结果。
+    retrieval_top_k: int = Field(default=10, gt=0)
+    retrieval_top_n: int = Field(default=3, gt=0)
+    retrieval_score_threshold: float = Field(
+        default=0.50,
+        ge=-1.0,
+        le=1.0,
+    )
+
+    @model_validator(mode="after")
+    def validate_retrieval_limits(self) -> Self:
+        """确保最终返回数量不超过第一轮候选数量。
+
+        Returns:
+            校验通过的配置对象。
+
+        Raises:
+            ValueError: 当 ``retrieval_top_n`` 大于
+                ``retrieval_top_k`` 时抛出。
+        """
+        # Top-N 来自 Top-K 候选，因此不能比候选数量更大。
+        if self.retrieval_top_n > self.retrieval_top_k:
+            raise ValueError(
+                "RETRIEVAL_TOP_N 不能大于 RETRIEVAL_TOP_K。"
+            )
+
+        return self
 
     def resolve_path(self, path: Path) -> Path:
         """将配置路径解析为不依赖当前工作目录的绝对路径。
