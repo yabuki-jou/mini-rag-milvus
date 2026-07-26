@@ -1,4 +1,4 @@
-"""提供知识库文档上传、列表查询和解析入库接口。"""
+"""提供知识库文档上传、查询、解析入库和删除接口。"""
 
 from typing import Annotated
 from uuid import UUID
@@ -15,6 +15,7 @@ from app.models import Document
 from app.schemas import DocumentRead
 from app.services.document_service import (
     create_uploaded_document,
+    delete_document,
     process_document,
 )
 
@@ -102,6 +103,33 @@ def parse_document_endpoint(
     # 路由只负责接收已校验的依赖，处理流程交给业务服务。
     return process_document(
         document=document,
+        knowledge_base=knowledge_base,
+        session=session,
+    )
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_document_endpoint(
+    document_id: UUID,
+    knowledge_base: OwnedKnowledgeBaseDep,
+    session: SessionDep,
+) -> None:
+    """删除当前用户知识库中的文档及其全部关联资源。
+
+    Args:
+        document_id: 请求路径中的文档 UUID。
+        knowledge_base: 已通过当前用户所有权校验的知识库。
+        session: 当前请求使用的 SQLite Session。
+
+    Raises:
+        AppError: 文档正在处理，或 Milvus、文件和数据库清理失败。
+    """
+    # 不使用 OwnedDocumentDep：文档不存在时仍返回 204，支持安全重试。
+    delete_document(
+        document_id=document_id,
         knowledge_base=knowledge_base,
         session=session,
     )

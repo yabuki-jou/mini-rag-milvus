@@ -1,11 +1,16 @@
 """执行知识库范围内的向量检索、分数过滤和结果转换。"""
 
+import logging
 from dataclasses import dataclass
+from time import perf_counter
 from uuid import UUID
 
 from app.core.config import settings
 from app.core.errors import AppError
 from app.services.vector_service import get_vector_store
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,8 @@ def retrieve_chunks(
         AppError: Milvus 检索失败或返回数据缺少必要字段。
     """
 
+    retrieval_started_at = perf_counter()
+
     # 在搜索前限制用户和知识库，避免无权数据进入候选结果。
     retrieval_filter = build_retrieval_filter(
         user_id=user_id,
@@ -88,6 +95,13 @@ def retrieve_chunks(
         raise
     except Exception as exc:
         # 不把 Milvus 或 Embedding 的内部错误直接暴露给客户端。
+        logger.exception(
+            "retrieval_failed user_id=%s kb_id=%s top_k=%s threshold=%.4f",
+            user_id,
+            kb_id,
+            settings.retrieval_top_k,
+            settings.retrieval_score_threshold,
+        )
         raise AppError(
             status_code=503,
             code="MILVUS_SEARCH_FAILED",
@@ -95,6 +109,7 @@ def retrieve_chunks(
         ) from exc
 
     qualified_chunks: list[RetrievedChunk] = []
+    candidate_summaries: list[dict[str, str | float]] = []
 
     # 只转换达到最低相似度的候选结果。
     for document, raw_score in search_results:
@@ -106,6 +121,14 @@ def retrieve_chunks(
                 code="MILVUS_RESULT_INVALID",
                 message="Milvus 返回了无效的相似度分数。",
             ) from exc
+
+        # 日志只保存候选身份与分数，不重复记录可能包含敏感信息的正文。
+        candidate_summaries.append(
+            {
+                "chunk_id": str(document.metadata.get("chunk_id", "<missing>")),
+                "score": round(score, 6),
+            }
+        )
 
         # 使用小于号排除低分结果，因此等于阈值时仍会保留。
         if score < settings.retrieval_score_threshold:
@@ -139,4 +162,19 @@ def retrieve_chunks(
     )
 
     # 结果不足 Top-N 时直接返回已有结果，不使用低分 Chunk 补足。
-    return qualified_chunks[: settings.retrieval_top_n]
+    final_chunks = qualified_chunks[: settings.retrieval_top_n]
+
+    logger.info(
+        "retrieval_complete user_id=%s kb_id=%s top_k=%s top_n=%s "
+        "threshold=%.4f candidates=%s prompt_chunk_ids=%s "
+        "duration_ms=%.2f",
+        user_id,
+        kb_id,
+        settings.retrieval_top_k,
+        settings.retrieval_top_n,
+        settings.retrieval_score_threshold,
+        candidate_summaries,
+        [chunk.chunk_id for chunk in final_chunks],
+        (perf_counter() - retrieval_started_at) * 1000,
+    )
+    return final_chunks

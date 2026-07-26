@@ -1,4 +1,4 @@
-"""定义知识库和文档资源的所有权校验依赖。"""
+"""定义知识库、文档和聊天会话资源的所有权校验依赖。"""
 
 from typing import Annotated
 from uuid import UUID
@@ -8,7 +8,7 @@ from fastapi import Depends
 from app.core.errors import AppError
 from app.dependencies.auth import CurrentUserDep
 from app.dependencies.database import SessionDep
-from app.models import Document, KnowledgeBase
+from app.models import ChatSession, Document, KnowledgeBase
 
 
 def get_owned_knowledge_base(
@@ -99,4 +99,48 @@ def get_document_in_knowledge_base(
 OwnedDocumentDep = Annotated[
     Document,
     Depends(get_document_in_knowledge_base),
+]
+
+
+def get_owned_chat_session(
+    session_id: UUID,
+    session: SessionDep,
+    current_user: CurrentUserDep,
+) -> ChatSession:
+    """查询聊天会话，并验证它是否属于当前用户。
+
+    Args:
+        session_id: 请求路径中的聊天会话 UUID。
+        session: 当前请求使用的数据库 Session。
+        current_user: 已通过身份校验的当前用户。
+
+    Returns:
+        当前用户拥有的聊天会话记录。
+
+    Raises:
+        AppError: 聊天会话不存在或不属于当前用户。
+    """
+    # 按主键读取会话；不存在时返回稳定的业务错误。
+    chat_session = session.get(ChatSession, session_id)
+    if chat_session is None:
+        raise AppError(
+            status_code=404,
+            code="CHAT_SESSION_NOT_FOUND",
+            message="聊天会话不存在。",
+        )
+
+    # 所有权不匹配时禁止将会话注入后续消息接口。
+    if chat_session.user_id != current_user.id:
+        raise AppError(
+            status_code=403,
+            code="CHAT_SESSION_FORBIDDEN",
+            message="无权访问该聊天会话。",
+        )
+    return chat_session
+
+
+# 将已完成当前用户所有权校验的 ChatSession 注入后续路由。
+OwnedChatSessionDep = Annotated[
+    ChatSession,
+    Depends(get_owned_chat_session),
 ]

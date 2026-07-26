@@ -6,6 +6,14 @@ from app.schemas.account import (
     UserCreate,
     UserRead,
 )
+from app.schemas.chat import (
+    ChatAnswerResponse,
+    ChatMessageRead,
+    ChatQuestionRequest,
+    ChatSessionCreate,
+    ChatSessionRead,
+    SourceRead,
+)
 from app.schemas.document import DocumentRead
 from app.schemas.health import HealthComponent, HealthResponse
 from app.schemas.retrieval import (
@@ -16,6 +24,11 @@ from app.schemas.retrieval import (
 
 
 __all__ = [
+    "ChatAnswerResponse",
+    "ChatMessageRead",
+    "ChatQuestionRequest",
+    "ChatSessionCreate",
+    "ChatSessionRead",
     "DocumentRead",
     "HealthComponent",
     "HealthResponse",
@@ -24,6 +37,7 @@ __all__ = [
     "RetrievalResultRead",
     "RetrievalTestRequest",
     "RetrievalTestResponse",
+    "SourceRead",
     "UserCreate",
     "UserRead",
 ]

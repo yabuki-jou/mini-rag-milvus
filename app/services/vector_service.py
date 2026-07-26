@@ -1,7 +1,9 @@
 """管理 Milvus 连接、Chunk Collection、向量写入和精确删除。"""
 
+import logging
 from functools import lru_cache
 from hashlib import sha256
+from time import perf_counter
 from uuid import UUID
 
 from langchain_milvus import Milvus
@@ -13,6 +15,9 @@ from app.services.embedding_service import EmbeddedChunk
 from app.services.model_service import get_embeddings
 
 
+logger = logging.getLogger(__name__)
+
+
 @lru_cache
 def get_milvus_client() -> MilvusClient:
     """创建并缓存连接现有 Milvus 服务的客户端。"""
@@ -20,10 +25,14 @@ def get_milvus_client() -> MilvusClient:
     try:
         return MilvusClient(**settings.milvus_connection_args)
     except Exception as exc:
+        logger.exception(
+            "milvus_connection_failed uri=%s",
+            settings.milvus_uri,
+        )
         raise AppError(
             status_code=503,
             code="MILVUS_UNAVAILABLE",
-            message=f"无法连接 Milvus：{exc}",
+            message="无法连接 Milvus。",
         ) from exc
 
 
@@ -34,10 +43,14 @@ def list_collections() -> list[str]:
     try:
         return list(client.list_collections())
     except Exception as exc:
+        logger.exception(
+            "milvus_list_collections_failed uri=%s",
+            settings.milvus_uri,
+        )
         raise AppError(
             status_code=503,
             code="MILVUS_UNAVAILABLE",
-            message=f"无法连接 Milvus：{exc}",
+            message="无法连接 Milvus。",
         ) from exc
 
 
@@ -130,6 +143,10 @@ def ensure_chunk_collection() -> str:
     except AppError:
         raise
     except Exception as exc:
+        logger.exception(
+            "milvus_collection_init_failed collection=%s",
+            collection_name,
+        )
         raise AppError(
             status_code=503,
             code="MILVUS_COLLECTION_INIT_FAILED",
@@ -237,6 +254,12 @@ def insert_chunks(
     except AppError:
         raise
     except Exception as exc:
+        logger.exception(
+            "milvus_insert_failed user_id=%s kb_id=%s document_id=%s",
+            user_id,
+            kb_id,
+            document_id,
+        )
         raise AppError(
             status_code=503,
             code="MILVUS_INSERT_FAILED",
@@ -284,6 +307,7 @@ def delete_document_chunks(
         f'and document_id == "{document_id}"'
     )
 
+    delete_started_at = perf_counter()
     try:
         # 删除该文档的全部旧 Chunk。
         delete_result = milvus_client.delete(
@@ -295,6 +319,14 @@ def delete_document_chunks(
     except AppError:
         raise
     except Exception as exc:
+        logger.exception(
+            "milvus_document_delete_failed user_id=%s kb_id=%s "
+            "document_id=%s duration_ms=%.2f",
+            user_id,
+            kb_id,
+            document_id,
+            (perf_counter() - delete_started_at) * 1000,
+        )
         raise AppError(
             status_code=503,
             code="MILVUS_DELETE_FAILED",
@@ -302,4 +334,14 @@ def delete_document_chunks(
         ) from exc
 
     # 返回实际删除数量；没有旧 Chunk 时应返回 0。
-    return int(delete_result.get("delete_count", 0))
+    deleted_count = int(delete_result.get("delete_count", 0))
+    logger.info(
+        "milvus_document_deleted user_id=%s kb_id=%s document_id=%s "
+        "deleted_chunks=%s duration_ms=%.2f",
+        user_id,
+        kb_id,
+        document_id,
+        deleted_count,
+        (perf_counter() - delete_started_at) * 1000,
+    )
+    return deleted_count

@@ -1,5 +1,6 @@
-"""校验上传文件，并将原文件流式保存到本地文件系统。"""
+"""校验、保存并安全删除本地原文件。"""
 
+import logging
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -13,6 +14,8 @@ from app.core.errors import AppError
 
 ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx"})
 FILE_READ_CHUNK_SIZE = 1024 * 1024
+
+logger = logging.getLogger(__name__)
 
 
 def validate_filename(filename: str | None) -> str:
@@ -144,3 +147,55 @@ def _cleanup_partial_file(target_path: Path) -> None:
         target_path.parent.rmdir()
     except OSError:
         pass
+
+
+def delete_stored_document_file(storage_path: str) -> None:
+    """在配置的文件目录内幂等删除一个文档原文件。
+
+    Args:
+        storage_path: ``Document.storage_path`` 保存的原文件绝对路径。
+
+    Raises:
+        AppError: 路径越界、路径层级无效、目标是目录或文件删除失败。
+    """
+    # 同时规范化存储根目录和目标路径，防止 ``..`` 或符号链接越界。
+    storage_root = settings.file_storage_path.resolve()
+    target_path = Path(storage_path).resolve()
+
+    try:
+        relative_path = target_path.relative_to(storage_root)
+    except ValueError as exc:
+        raise AppError(
+            status_code=500,
+            code="DOCUMENT_STORAGE_PATH_INVALID",
+            message="文档存储路径无效。",
+        ) from exc
+
+    # 上传路径至少应为 kb_id/document_id/filename，不能把存储根目录、
+    # 知识库目录或文档目录误当成文件删除。
+    if len(relative_path.parts) < 3 or target_path.is_dir():
+        raise AppError(
+            status_code=500,
+            code="DOCUMENT_STORAGE_PATH_INVALID",
+            message="文档存储路径无效。",
+        )
+
+    try:
+        # missing_ok 让重试删除时把“文件已经不存在”视为成功。
+        target_path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise AppError(
+            status_code=500,
+            code="DOCUMENT_FILE_DELETE_FAILED",
+            message="文档原文件删除失败。",
+        ) from exc
+
+    try:
+        # 只清理当前文档的空目录，不递归删除，也不删除知识库目录。
+        target_path.parent.rmdir()
+    except OSError:
+        # 目录不存在、非空或暂时被占用都不影响文件已删除这一事实。
+        logger.debug(
+            "document storage directory retained path=%s",
+            target_path.parent,
+        )
