@@ -1,49 +1,14 @@
-"""定义路由共用的数据库会话、身份和权限依赖。"""
+"""定义知识库、文档和聊天会话资源的所有权校验依赖。"""
 
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header
-from sqlmodel import Session
+from fastapi import Depends
 
 from app.core.errors import AppError
-from app.db import get_session
-from app.models import Document, KnowledgeBase, User
-
-
-# 路由声明 SessionDep 后，FastAPI 会自动创建并注入数据库会话。
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
-def get_current_user(
-    session: SessionDep,
-    x_user_id: Annotated[UUID, Header(alias="X-User-ID")],
-) -> User:
-    """根据请求头中的用户 ID 查询当前用户。
-
-    Args:
-        session: 当前请求使用的数据库 Session。
-        x_user_id: ``X-User-ID`` 请求头中的用户 UUID。
-
-    Returns:
-        请求所代表的用户记录。
-
-    Raises:
-        AppError: 请求头对应的用户不存在。
-    """
-    # 请求头只携带身份 ID，真实用户必须以 SQLite 记录为准。
-    current_user = session.get(User, x_user_id)
-    if current_user is None:
-        raise AppError(
-            status_code=401,
-            code="INVALID_USER",
-            message="X-User-ID 对应的用户不存在。",
-        )
-    return current_user
-
-
-# 路由声明 CurrentUserDep 后，会自动执行请求头身份校验。
-CurrentUserDep = Annotated[User, Depends(get_current_user)]
+from app.dependencies.auth import CurrentUserDep
+from app.dependencies.database import SessionDep
+from app.models import ChatSession, Document, KnowledgeBase
 
 
 def get_owned_knowledge_base(
@@ -72,6 +37,7 @@ def get_owned_knowledge_base(
             code="KNOWLEDGE_BASE_NOT_FOUND",
             message="知识库不存在。",
         )
+
     # 所有权不匹配时禁止继续注入知识库，后续路由无法绕过此检查。
     if knowledge_base.owner_id != current_user.id:
         raise AppError(
@@ -133,4 +99,48 @@ def get_document_in_knowledge_base(
 OwnedDocumentDep = Annotated[
     Document,
     Depends(get_document_in_knowledge_base),
+]
+
+
+def get_owned_chat_session(
+    session_id: UUID,
+    session: SessionDep,
+    current_user: CurrentUserDep,
+) -> ChatSession:
+    """查询聊天会话，并验证它是否属于当前用户。
+
+    Args:
+        session_id: 请求路径中的聊天会话 UUID。
+        session: 当前请求使用的数据库 Session。
+        current_user: 已通过身份校验的当前用户。
+
+    Returns:
+        当前用户拥有的聊天会话记录。
+
+    Raises:
+        AppError: 聊天会话不存在或不属于当前用户。
+    """
+    # 按主键读取会话；不存在时返回稳定的业务错误。
+    chat_session = session.get(ChatSession, session_id)
+    if chat_session is None:
+        raise AppError(
+            status_code=404,
+            code="CHAT_SESSION_NOT_FOUND",
+            message="聊天会话不存在。",
+        )
+
+    # 所有权不匹配时禁止将会话注入后续消息接口。
+    if chat_session.user_id != current_user.id:
+        raise AppError(
+            status_code=403,
+            code="CHAT_SESSION_FORBIDDEN",
+            message="无权访问该聊天会话。",
+        )
+    return chat_session
+
+
+# 将已完成当前用户所有权校验的 ChatSession 注入后续路由。
+OwnedChatSessionDep = Annotated[
+    ChatSession,
+    Depends(get_owned_chat_session),
 ]

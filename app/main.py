@@ -7,8 +7,9 @@ from fastapi import FastAPI
 
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
+from app.core.logging import RequestContextMiddleware, configure_logging
 from app.db import create_db_and_tables
-from app.routers import documents, health, knowledge_bases, users
+from app.routers import chat, documents, health, knowledge_bases, retrieval, users
 
 
 @asynccontextmanager
@@ -26,6 +27,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+# 启动时安装一次应用日志处理器，业务日志会自动携带 request_id。
+configure_logging()
+
 # 集中创建 ASGI 应用，Uvicorn 通过 ``app.main:app`` 导入该对象。
 app = FastAPI(
     title=settings.app_name,
@@ -34,9 +38,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 请求上下文中间件负责响应头、请求总耗时和全链路 request_id。
+app.add_middleware(RequestContextMiddleware)
+
 # 先安装统一异常响应，再按业务领域注册各组路由。
 register_exception_handlers(app)
 app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(knowledge_bases.router)
 app.include_router(documents.router)
+app.include_router(retrieval.router)
+app.include_router(chat.router)
