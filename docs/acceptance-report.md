@@ -17,13 +17,14 @@
 | FR-015 健康 | health router | 无独立测试 | 需真实环境验证 |
 | FR-016 日志 | logging middleware | 无独立测试 | 人工观察通过，自动覆盖缺失 |
 | NFR-010 数据迁移 | Alembic `0001`/`0002`、启动迁移服务 | `test_migrations.py` | 通过（临时旧库与空库） |
-| FR-024..026 请假领域基础 | leave models/service | `test_leave_service.py` | 领域层通过；Agent 工具、确认和 API 尚未实现 |
+| FR-024..026 请假领域基础 | leave models/service | `test_leave_service.py` | 领域层通过；写工具的人工确认和 API 尚未实现 |
+| FR-023..025 Agent 只读工具 | policy/leave tools | `test_read_tools.py` | 工具通过；正式 Graph 与 API 尚未接入 |
 
 ## 自动化检查
 
 | 检查 | 命令 | 本次结果 |
 | --- | --- | --- |
-| Pytest | `python -m pytest -q` | 通过：49 passed，1 warning，10.18s |
+| Pytest | `python -m pytest -q` | 通过：60 passed，1 warning，10.92s |
 | Python 编译 | `python -m compileall -q app tests` | 通过 |
 | Lint / 类型 | 无配置 | 未执行，不能判定通过 |
 | 覆盖率 | 无配置 | 未统计 |
@@ -44,8 +45,8 @@ Pytest 的唯一警告来自 FastAPI TestClient 对当前 `httpx` 集成方式�
 
 ## 未实现、部分实现、无法验证
 
-- 未实现：已确认的完整登录认证和知识库修改删除，以及前端、异步任务、OCR、混合检索、Rerank、正式 Agent 工具/Graph/API、CI、lint、类型检查和覆盖率阈值。用户资料修改和账号删除不属于需求。
-- 部分实现：员工、余额和请假申请领域层已实现，但尚未接入 Agent；隔离逻辑完整但当前身份头可伪造；已确认使用 JWT Access Token + Refresh Token 替换但尚未实现。日志无指标/Tracing；跨存储一致性无原子事务。
+- 未实现：已确认的完整登录认证和知识库修改删除，以及前端、异步任务、OCR、混合检索、Rerank、正式 Agent Graph/API、CI、lint、类型检查和覆盖率阈值。用户资料修改和账号删除不属于需求。
+- 部分实现：员工、余额、申请领域层和四个只读工具已实现，但尚未接入正式 Graph；隔离逻辑完整但当前身份头可伪造；已确认使用 JWT Access Token + Refresh Token 替换但尚未实现。日志无指标/Tracing；跨存储一致性无原子事务。
 - 当前自动测试无法证明：真实 BGE/Milvus/DeepSeek、三份制度材料 10 问的人工回归。
 
 ## 风险
@@ -58,7 +59,7 @@ Pytest 的唯一警告来自 FastAPI TestClient 对当前 `httpx` 集成方式�
 
 ## 当前结论
 
-代码满足“单机学习版完整 RAG 后端”的主要目标，并完成企业行政 Agent 的迁移与请假领域基础。正式只读工具、Graph、人工确认和 API 尚未实现；Mock 测试也不能替代真实外部系统集成验收。
+代码满足“单机学习版完整 RAG 后端”的主要目标，并完成企业行政 Agent 的迁移、请假领域基础和四个只读工具。正式 Graph、人工确认和 API 尚未实现；Mock 测试也不能替代真实外部系统集成验收。
 
 ## 证据
 

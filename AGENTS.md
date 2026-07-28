@@ -8,7 +8,7 @@
 
 本项目是个人学习为主、可供朋友小范围使用的企业知识库与行政 Agent 后端，使用 FastAPI、SQLModel、SQLite、LangChain、LangGraph、本地 BGE、Milvus 和 DeepSeek。Swagger 是当前唯一操作界面，不以公开多用户网站为部署目标。
 
-现有可验收能力包括 RAG 后端、Alembic 迁移基线，以及与 LLM 无关的员工、假期余额和请假申请领域层。企业行政 Agent 工具、Graph、API 和完整登录认证仍在实施中，在相应步骤通过测试前不得写成现有能力。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
+现有可验收能力包括 RAG 后端、Alembic 迁移基线、员工与请假领域层，以及尚未接入正式 Graph 的制度、余额和申请只读工具。企业行政 Agent Graph、人工确认、API 和完整登录认证仍在实施中，在相应步骤通过测试前不得写成现有能力。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
 
 ## 企业行政 Agent 计划
 

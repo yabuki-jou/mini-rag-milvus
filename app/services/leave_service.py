@@ -20,7 +20,19 @@ from app.models import (
 
 @dataclass(frozen=True)
 class LeaveRequestDraft:
-    """表示通过业务校验、但尚未写入数据库的申请草稿。"""
+    """表示通过业务校验、但尚未写入数据库的申请草稿。
+
+    字段:
+        user_id: 生成草稿时使用的可信用户 ID。
+        employee_id: 根据可信用户解析出的员工 ID。
+        leave_type: 本次申请的假期类型。
+        start_date: 请假范围包含的第一个日期。
+        end_date: 请假范围包含的最后一个日期。
+        leave_days: 计算得到的完整工作日数。
+        reason: 去除两端空白后的请假原因。
+
+    说明 1：该 dataclass 不可变，防止通过校验的草稿在确认前被静默修改。
+    """
 
     user_id: UUID
     employee_id: UUID
@@ -32,7 +44,20 @@ class LeaveRequestDraft:
 
 
 def calculate_workdays(start_date: date, end_date: date) -> int:
-    """按周一至周五计算包含首尾日期的整工作日数量。"""
+    """按周一至周五计算包含首尾日期的整工作日数量。
+
+    参数:
+        start_date: 需要计入范围的第一个日期。
+        end_date: 需要计入范围的最后一个日期。
+
+    返回:
+        日期范围内周一至周五的总天数，包含开始日期和结束日期。
+
+    异常:
+        AppError: 日期范围反向或范围内没有工作日时抛出。
+
+    说明 2：当前学习规则不处理法定节假日、调休或半天假。
+    """
     if end_date < start_date:
         raise AppError(
             status_code=422,
@@ -62,7 +87,22 @@ def create_employee_profile(
     department: str | None,
     session: Session,
 ) -> EmployeeProfile:
-    """为现有用户创建唯一员工资料。"""
+    """为现有用户创建唯一员工资料。
+
+    参数:
+        user: 员工资料所属的现有应用用户。
+        employee_no: 用于业务展示的员工编号。
+        department: 可选的部门名称。
+        session: 执行本次事务的 SQLModel Session。
+
+    返回:
+        已经写入数据库并刷新后的员工资料。
+
+    异常:
+        AppError: 员工编号为空或唯一约束冲突时抛出。
+
+    说明 3：后续授权从 user.id 开始，不能依赖 employee_no。
+    """
     normalized_no = employee_no.strip().upper()
     normalized_department = department.strip() if department else None
     if not normalized_no:
@@ -94,7 +134,23 @@ def set_leave_balance(
     used_days: int,
     session: Session,
 ) -> LeaveBalance:
-    """创建或更新员工某类假期额度，供测试和演示数据初始化。"""
+    """创建或更新员工某类假期额度，供测试和演示数据初始化。
+
+    参数:
+        employee: 拥有该余额的员工资料。
+        leave_type: 需要创建或更新的假期类型。
+        total_days: 授予员工的总天数。
+        used_days: 已经使用的天数。
+        session: 执行本次事务的 SQLModel Session。
+
+    返回:
+        已经写入数据库并刷新后的假期余额。
+
+    异常:
+        AppError: 额度不合法或数据库保存失败时抛出。
+
+    说明 4：employee 和 leave_type 共同定位一条余额记录。
+    """
     if total_days < 0 or used_days < 0 or used_days > total_days:
         raise AppError(
             422,
@@ -134,7 +190,20 @@ def set_leave_balance(
 
 
 def get_employee_profile(user_id: UUID, session: Session) -> EmployeeProfile:
-    """取得当前用户唯一且启用的员工资料。"""
+    """取得当前用户唯一且启用的员工资料。
+
+    参数:
+        user_id: 服务端提供的可信当前用户 ID。
+        session: 执行查询的 SQLModel Session。
+
+    返回:
+        当前用户拥有并且处于启用状态的员工资料。
+
+    异常:
+        AppError: 员工资料不存在或已停用时抛出。
+
+    说明 5：该查询是应用用户进入请假领域的授权桥梁。
+    """
     profile = session.exec(
         select(EmployeeProfile).where(EmployeeProfile.user_id == user_id)
     ).first()
@@ -150,7 +219,21 @@ def get_leave_balance(
     leave_type: LeaveType,
     session: Session,
 ) -> LeaveBalance:
-    """查询当前用户自己的指定假期余额。"""
+    """查询当前用户自己的指定假期余额。
+
+    参数:
+        user_id: 服务端提供的可信当前用户 ID。
+        leave_type: 需要查询的假期类型。
+        session: 执行查询的 SQLModel Session。
+
+    返回:
+        当前员工指定假期类型的余额记录。
+
+    异常:
+        AppError: 员工资料或假期余额不存在时抛出。
+
+    说明 6：调用者不需要也不能提供其他员工的内部 ID。
+    """
     employee = get_employee_profile(user_id, session)
     balance = session.exec(
         select(LeaveBalance).where(
@@ -171,7 +254,24 @@ def build_leave_request_draft(
     reason: str,
     session: Session,
 ) -> LeaveRequestDraft:
-    """验证当前用户的申请参数并生成无副作用草稿。"""
+    """验证当前用户的申请参数并生成无副作用草稿。
+
+    参数:
+        user_id: 服务端提供的可信当前用户 ID。
+        leave_type: 本次申请的假期类型。
+        start_date: 请假范围包含的第一个日期。
+        end_date: 请假范围包含的最后一个日期。
+        reason: 用户提供的请假原因。
+        session: 执行各项校验查询的 SQLModel Session。
+
+    返回:
+        已通过校验但尚未写入数据库的不可变草稿。
+
+    异常:
+        AppError: 原因、日期、余额、身份或日期重叠不合法时抛出。
+
+    说明 7：人工确认将在后续发生，因此这里不会执行 commit。
+    """
     normalized_reason = reason.strip()
     if not normalized_reason:
         raise AppError(422, "LEAVE_REASON_INVALID", "请假原因不能为空。")
@@ -217,7 +317,22 @@ def submit_leave_request(
     idempotency_key: str,
     session: Session,
 ) -> LeaveRequest:
-    """幂等提交已确认草稿，并在同一事务扣减可用额度。"""
+    """幂等提交已确认草稿，并在同一事务扣减可用额度。
+
+    参数:
+        draft: 用户确认后恢复执行的已校验草稿。
+        idempotency_key: 当前确认动作的唯一标识。
+        session: 执行恢复校验和事务提交的 SQLModel Session。
+
+    返回:
+        新写入的申请，或者同一确认动作先前已经写入的申请。
+
+    异常:
+        AppError: 幂等键、归属、最新余额、日期重叠或保存不合法时抛出。
+
+    说明 8：恢复时使用数据库中的当前事实，不能依赖旧快照。
+    说明 9：申请写入和余额扣减必须共享同一个事务。
+    """
     normalized_key = idempotency_key.strip()
     if not normalized_key:
         raise AppError(422, "IDEMPOTENCY_KEY_INVALID", "幂等键不能为空。")
@@ -300,13 +415,36 @@ def submit_leave_request(
     return leave_request
 
 
-def list_leave_requests(user_id: UUID, session: Session) -> list[LeaveRequest]:
-    """按创建时间倒序列出当前用户自己的申请。"""
+def list_leave_requests(
+    user_id: UUID,
+    session: Session,
+    *,
+    limit: int = 20,
+) -> list[LeaveRequest]:
+    """按创建时间倒序列出当前用户自己的申请。
+
+    参数:
+        user_id: 服务端提供的可信当前用户 ID。
+        session: 执行查询的 SQLModel Session。
+        limit: 最多返回的申请数量，仅由服务端调用方指定。
+
+    返回:
+        当前员工最多 limit 条申请，按照创建时间从新到旧排列。
+
+    异常:
+        AppError: 当前用户没有启用的员工资料，或 limit 不合法时抛出。
+
+    说明 10：使用解析后的员工 ID 构造 SQL 条件，以保证数据归属隔离。
+    """
+    if limit <= 0:
+        raise AppError(422, "LEAVE_REQUEST_LIMIT_INVALID", "申请数量限制必须大于零。")
+
     employee = get_employee_profile(user_id, session)
     statement = (
         select(LeaveRequest)
         .where(LeaveRequest.employee_id == employee.id)
         .order_by(LeaveRequest.created_at.desc())
+        .limit(limit)
     )
     return list(session.exec(statement).all())
 
@@ -316,7 +454,21 @@ def get_leave_request(
     request_id: UUID,
     session: Session,
 ) -> LeaveRequest:
-    """读取当前用户自己的申请，并隐藏其他用户申请是否存在。"""
+    """读取当前用户自己的申请，并隐藏其他用户申请是否存在。
+
+    参数:
+        user_id: 服务端提供的可信当前用户 ID。
+        request_id: 需要读取的请假申请主键。
+        session: 执行查询的 SQLModel Session。
+
+    返回:
+        申请属于当前员工时返回对应的请假申请。
+
+    异常:
+        AppError: 员工资料无效或当前员工不存在该申请时抛出。
+
+    说明 11：把其他员工的申请统一报告为不存在，可以隐藏资源是否真实存在。
+    """
     employee = get_employee_profile(user_id, session)
     leave_request = session.get(LeaveRequest, request_id)
     if leave_request is None or leave_request.employee_id != employee.id:

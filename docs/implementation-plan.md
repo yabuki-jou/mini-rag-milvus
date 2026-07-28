@@ -26,7 +26,7 @@
 | A-01 文档与架构基线 | T-10 | FR-022..029 | `AGENTS.md`, `LEARNING_PLAN.md`, `docs/*` | 需求、架构、数据、API 和任务编号一致 | 完成：39 tests + compileall |
 | A-02 Alembic 基线 | A-01 | NFR-010 | 迁移配置、现有 Schema 基线 | 旧数据库升级且原数据可读 | 完成：4 migration tests；42 full tests；compileall |
 | A-03 Agent 业务领域 | A-02 | FR-024..026 | 员工、余额、申请模型与 Service | 规则、事务和幂等测试通过 | 完成：6 domain tests；49 full tests；compileall |
-| A-04 只读 Agent 工具 | A-03 | FR-023..025 | 制度、余额、申请查询工具 | Schema 隐藏身份且隔离测试通过 | 未开始 |
+| A-04 只读 Agent 工具 | A-03 | FR-023..025 | 制度、余额、申请查询工具 | Schema 隐藏身份且隔离测试通过 | 完成：11 read-tool tests；60 full tests；compileall |
 | A-05 Graph 与 Checkpoint | A-04 | FR-027 | State、Prompt、Graph、Runtime | 多轮缺参和跨请求状态可恢复 | 未开始 |
 | A-06 人工确认 | A-05 | FR-026/027 | 草稿、interrupt、resume、写入 | 拒绝零写入，重复批准只写一次 | 未开始 |
 | A-07 Agent API | A-06 | FR-022..028 | Router、Schema、应用服务、依赖 | Swagger 完成消息与确认流程 | 未开始 |

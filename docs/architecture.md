@@ -51,6 +51,17 @@ Agent Router
 - Leave Service 负责工作日、余额、重复申请、事务和幂等规则。
 - RAG Prompt/Context Builder 负责上下文和引用，不再以 `rag_agent` 命名为自主 Agent。
 
+### 只读工具契约
+
+| 工具 | 模型可见参数 | 服务端注入 | 返回规则 |
+| --- | --- | --- | --- |
+| `search_company_policy` | `query` | `user_id`、`kb_id` | 返回查询文本、是否命中、文档名、页码、原文、分数等结构化结果；无合格结果时明确拒答 |
+| `query_my_leave_balance` | `leave_type` | `user_id` | 只返回当前员工指定假期类型的总额度、已使用额度和可用额度 |
+| `list_my_leave_requests` | 无 | `user_id` | 按创建时间倒序返回当前员工最近 20 条申请，不向模型暴露数量参数 |
+| `get_my_leave_request` | `request_id` | `user_id` | 只返回当前员工拥有的申请详情；其他员工的申请按不存在处理 |
+
+`employee_id`、`employee_no`、数据库 Session、Engine 和外部客户端不得出现在模型可见 Schema 或 Graph State 中。运行时数据库 Session 只在工具执行期间创建和关闭。
+
 ## 请求流程
 
 ```text
