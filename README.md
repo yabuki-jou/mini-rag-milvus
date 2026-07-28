@@ -5,6 +5,24 @@
 技术栈：FastAPI、SQLModel、SQLite、LangChain、本地
 `bge-small-zh-v1.5`、Milvus 和 DeepSeek。
 
+项目以个人学习为主，可以在可信朋友之间小范围使用，但当前身份头不是正式登录认证，
+不应直接作为公开多用户网站部署。唯一邮箱、密码、JWT Access Token + Refresh Token 登录以及知识库修改、删除属于后续已确认需求；Refresh Token 只保存哈希和会话状态，用户资料修改和账号删除不在计划内。
+
+登录功能按学习项目的简单方案设计：Refresh Token 不轮换，刷新时只签发新的 Access Token；退出登录通过撤销 SQLite 中的登录会话使 Refresh Token 失效。
+
+## 项目文档
+
+- [需求文档](docs/requirements.md)
+- [技术架构](docs/architecture.md)
+- [数据库设计](docs/database-design.md)
+- [API 设计](docs/api-design.md)
+- [实施计划](docs/implementation-plan.md)
+- [验收报告](docs/acceptance-report.md)
+- [代码库现状说明](docs/codebase/STRUCTURE.md)
+
+后续修改应遵循 [AGENTS.md](AGENTS.md) 的文档驱动顺序。无法确认的产品意图会
+标记为 `[ASK USER]`，不会由代码助手自行补充。
+
 ## 完成状态
 
 六个阶段均已实现：
@@ -204,8 +222,11 @@ C:\D\venvs\mrh\Scripts\python.exe -m pip install -r requirements-dev.txt
 确认 Milvus 已启动后，在项目根目录运行：
 
 ```powershell
+C:\D\venvs\mrh\Scripts\python.exe -m alembic upgrade head
 C:\D\venvs\mrh\Scripts\python.exe run.py
 ```
+
+`run.py` 启动时也会自动执行缺失迁移。首次接管旧数据库时，基线迁移会先核对现有五张 RAG 表的字段并补齐缺失索引；字段不兼容时会停止，不会覆盖旧表或业务数据。
 
 打开：
 
@@ -293,6 +314,26 @@ C:\D\venvs\mrh\Scripts\python.exe run.py
 文件或 Chunk 已不存在都视为成功，因此删除接口是幂等的。
 
 ## 日志
+
+日志会同时输出到启动项目的控制台，并持久化写入项目根目录：
+
+```text
+logs/app.log
+```
+
+默认单个日志文件达到 10 MB 后轮转，最多保留 5 个备份：
+
+```text
+app.log
+app.log.1
+app.log.2
+……
+app.log.5
+```
+
+可以通过 `.env` 中的 `LOG_FILE`、`LOG_MAX_BYTES` 和
+`LOG_BACKUP_COUNT` 调整文件位置、大小和备份数量。`logs/` 已加入
+`.gitignore`，不会被提交到 Git。
 
 日志记录以下信息，但不记录密钥和完整文档正文：
 

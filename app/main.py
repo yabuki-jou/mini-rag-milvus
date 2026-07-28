@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
-from app.db import create_db_and_tables
+from app.migration_service import upgrade_database
 from app.routers import chat, documents, health, knowledge_bases, retrieval, users
 
 
@@ -22,13 +22,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     Yields:
         启动初始化完成后，将控制权交还给 FastAPI。
     """
-    # 应用接收请求前先创建缺失的 SQLite 表，已有表不会被重建。
-    create_db_and_tables()
+    # 应用接收请求前先验证旧 Schema，并按版本顺序执行缺失迁移。
+    upgrade_database()
     yield
 
 
-# 启动时安装一次应用日志处理器，业务日志会自动携带 request_id。
-configure_logging()
+# 启动时安装控制台和文件日志，业务日志会自动携带 request_id。
+configure_logging(
+    log_file_path=settings.log_path,
+    max_bytes=settings.log_max_bytes,
+    backup_count=settings.log_backup_count,
+)
 
 # 集中创建 ASGI 应用，Uvicorn 通过 ``app.main:app`` 导入该对象。
 app = FastAPI(

@@ -2,6 +2,8 @@
 
 import logging
 from contextvars import ContextVar
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from re import fullmatch
 from time import perf_counter
 from uuid import uuid4
@@ -37,8 +39,18 @@ class RequestIdFilter(logging.Filter):
         return True
 
 
-def configure_logging() -> None:
-    """为应用安装一次包含请求 ID 的控制台日志处理器。"""
+def configure_logging(
+    log_file_path: Path,
+    max_bytes: int,
+    backup_count: int,
+) -> None:
+    """安装包含请求 ID 的控制台和轮转文件日志处理器。
+
+    Args:
+        log_file_path: 应用日志文件的绝对路径。
+        max_bytes: 单个日志文件触发轮转的最大字节数。
+        backup_count: 轮转后保留的历史日志文件数量。
+    """
     root_logger = logging.getLogger()
 
     # 开发环境默认记录 INFO；重复导入应用时不重复添加处理器。
@@ -48,17 +60,40 @@ def configure_logging() -> None:
     ):
         return
 
-    handler = logging.StreamHandler()
-    handler._mini_rag_handler = True  # type: ignore[attr-defined]
-    handler.addFilter(RequestIdFilter())
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s "
-            "request_id=%(request_id)s %(message)s"
-        )
+    # 两个处理器共用格式和过滤器，保证控制台与文件内容结构一致。
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s "
+        "request_id=%(request_id)s %(message)s"
     )
-    root_logger.addHandler(handler)
+    request_id_filter = RequestIdFilter()
+
+    # 控制台日志便于开发时立即观察请求和异常。
+    console_handler = logging.StreamHandler()
+    console_handler._mini_rag_handler = True  # type: ignore[attr-defined]
+    console_handler.addFilter(request_id_filter)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # 日志目录不存在时先创建；文件达到上限后生成 app.log.1 等备份。
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        filename=log_file_path,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    file_handler._mini_rag_handler = True  # type: ignore[attr-defined]
+    file_handler.addFilter(request_id_filter)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
     root_logger.setLevel(logging.INFO)
+    logger.info(
+        "logging_configured file=%s max_bytes=%s backup_count=%s",
+        log_file_path,
+        max_bytes,
+        backup_count,
+    )
 
 
 def _resolve_request_id(request: Request) -> str:
