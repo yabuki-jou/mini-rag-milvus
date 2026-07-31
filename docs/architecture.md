@@ -49,7 +49,15 @@ Agent Router
 - Graph 只保存可序列化状态，不保存 Session、Engine 或客户端。
 - Tool 只声明模型可见参数，并调用领域 Service；身份和知识库范围由运行上下文注入。
 - Leave Service 负责工作日、余额、重复申请、事务和幂等规则。
-- RAG Prompt/Context Builder 负责上下文和引用，不再以 `rag_agent` 命名为自主 Agent。
+- 现有 `rag_agent.py` 只负责 RAG Prompt 和引用构造，不属于企业行政 Agent；本步保留该兼容文件名和现有 Chat 调用链。
+
+正式企业行政 Agent 使用以下模块边界：
+
+- `app/agents/admin/state.py`：只定义可序列化消息、授权范围和待确认动作字段。
+- `app/agents/admin/prompts.py`：集中维护工具选择、拒答和身份注入规则。
+- `app/agents/admin/graph.py`：校验上下文并编排“模型 → ToolNode → 模型”只读闭环。
+- `app/agents/admin/runtime.py`：延迟获取模型，创建和关闭独立 SQLite Checkpointer。
+- `app/agents/admin/observability.py`：记录不含参数正文的工具状态和耗时，并限制可重试异常。
 
 ### 只读工具契约
 
@@ -133,7 +141,7 @@ flowchart TD
 - SQLite、文件、Milvus 中途崩溃时可能不一致。
 - `X-User-ID` 可伪造，只适合当前学习和可信朋友小范围使用；在扩大访问范围前必须替换为完整认证。
 - 正式启动使用 Alembic；`create_all()` 只保留给隔离测试快速建表。
-- Agent 原型尚未接入 API、Checkpoint 和业务表，不能视为已实现能力。
+- 只读 Agent Graph 与 Checkpoint 已实现，但尚未接入 Agent API，也没有 interrupt/resume 写入闭环。
 - 普通 PDF 解析不支持 OCR/复杂表格。
 - DeepSeek 未显式配置超时和重试。
 

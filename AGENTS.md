@@ -8,7 +8,7 @@
 
 本项目是个人学习为主、可供朋友小范围使用的企业知识库与行政 Agent 后端，使用 FastAPI、SQLModel、SQLite、LangChain、LangGraph、本地 BGE、Milvus 和 DeepSeek。Swagger 是当前唯一操作界面，不以公开多用户网站为部署目标。
 
-现有可验收能力包括 RAG 后端、Alembic 迁移基线、员工与请假领域层，以及尚未接入正式 Graph 的制度、余额和申请只读工具。企业行政 Agent Graph、人工确认、API 和完整登录认证仍在实施中，在相应步骤通过测试前不得写成现有能力。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
+现有可验收能力包括 RAG 后端、Alembic 迁移基线、员工与请假领域层，以及已接入正式只读 Graph 的制度、余额和申请查询工具。Graph 使用独立 SQLite Checkpointer 保存同一 thread 的消息与授权范围；人工确认、写工具、Agent API 和完整登录认证仍未实现，在相应步骤通过测试前不得写成现有能力。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
 
 ## 企业行政 Agent 计划
 
@@ -47,7 +47,7 @@ create_leave_request       经人工确认后幂等创建请假申请
 9. 单元、Graph、API、迁移测试和真实模型评测。
 10. README、架构图、演示脚本和验收报告。
 
-详细需求、数据与接口分别以 `docs/requirements.md`、`database-design.md` 和 `api-design.md` 为准；实时进度以 `LEARNING_PLAN.md` 为准。现有 Agent 原型和中断半成品不算完成证据。
+详细需求、数据与接口分别以 `docs/requirements.md`、`database-design.md` 和 `api-design.md` 为准；实时进度以 `LEARNING_PLAN.md` 为准。正式企业行政 Agent 位于 `app/agents/admin/`；旧 `leave_graph.py` 和 `tool_calling_agent.py` 不再作为入口。
 
 ## 文档驱动顺序
 

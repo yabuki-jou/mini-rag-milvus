@@ -27,14 +27,14 @@
 | A-02 Alembic 基线 | A-01 | NFR-010 | 迁移配置、现有 Schema 基线 | 旧数据库升级且原数据可读 | 完成：4 migration tests；42 full tests；compileall |
 | A-03 Agent 业务领域 | A-02 | FR-024..026 | 员工、余额、申请模型与 Service | 规则、事务和幂等测试通过 | 完成：6 domain tests；49 full tests；compileall |
 | A-04 只读 Agent 工具 | A-03 | FR-023..025 | 制度、余额、申请查询工具 | Schema 隐藏身份且隔离测试通过 | 完成：11 read-tool tests；60 full tests；compileall |
-| A-05 Graph 与 Checkpoint | A-04 | FR-027 | State、Prompt、Graph、Runtime | 多轮缺参和跨请求状态可恢复 | 未开始 |
+| A-05 Graph 与 Checkpoint | A-04 | FR-027 | State、Prompt、Graph、Runtime | 多轮缺参和跨请求状态可恢复 | 完成：8 Graph tests；68 full tests；compileall |
 | A-06 人工确认 | A-05 | FR-026/027 | 草稿、interrupt、resume、写入 | 拒绝零写入，重复批准只写一次 | 未开始 |
 | A-07 Agent API | A-06 | FR-022..028 | Router、Schema、应用服务、依赖 | Swagger 完成消息与确认流程 | 未开始 |
 | A-08 安全与观测 | A-07 | FR-028/NFR-008..009 | 权限、错误、重试、工具日志 | 越权和敏感信息检查通过 | 未开始 |
 | A-09 测试与真实评测 | A-08 | FR-029 | 单元、Graph、API、迁移、评测 | 真实 DeepSeek 评测产生可分析结果 | 未开始 |
 | A-10 交付验收 | A-09 | FR-022..029 | README、图、演示和验收报告 | 完整演示链路和追踪表通过 | 未开始 |
 
-`app/agents/leave_graph.py`、`tool_calling_agent.py`、`tools/policy_tools.py` 当前是学习原型或中断后的半成品。它们没有 Agent API、业务表和完整测试，不计为任何 A 任务完成证据；后续按新模块边界重构。
+正式企业行政 Agent 位于 `app/agents/admin/`，按 State、Prompt、Graph、Runtime 和观测职责拆分，并注册 `app/agents/tools/` 下的四个只读工具。旧 `leave_graph.py` 已移除，`tool_calling_agent.py` 已不存在；人工确认写入和 Agent API 分别留在 A-06、A-07。
 
 ## 已确认的其他后续任务（尚未进入实现）
 
