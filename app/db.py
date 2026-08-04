@@ -49,7 +49,7 @@ engine = create_engine(
 
 
 def create_db_and_tables() -> None:
-    """创建所有尚未存在的数据库表。"""
+    """为隔离测试创建当前模型表；正式启动使用 Alembic 迁移。"""
     # metadata 已通过导入 models 注册全部 SQLModel 表。
     SQLModel.metadata.create_all(engine)
 

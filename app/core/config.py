@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     Attributes:
         app_name: Swagger 标题和应用名称。
         app_env: 当前运行环境，例如 ``development`` 或 ``production``。
+        log_file: 应用运行日志文件路径。
+        log_max_bytes: 单个日志文件允许的最大字节数。
+        log_backup_count: 日志轮转后保留的备份文件数量。
         database_url: SQLModel 数据库连接地址。
+        agent_checkpoint_file: LangGraph 执行状态使用的独立 SQLite 文件。
         file_storage_dir: 上传原文件的本地存储目录。
         milvus_uri: Milvus 服务地址。
         milvus_token: Milvus 认证令牌。
@@ -47,7 +51,11 @@ class Settings(BaseSettings):
     # 应用、SQLite 和原文件存储配置。
     app_name: str = "Mini RAG Milvus"
     app_env: str = "development"
+    log_file: Path = Path("./logs/app.log")
+    log_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    log_backup_count: int = Field(default=5, ge=0)
     database_url: str = "sqlite:///./data/handwrite.db"
+    agent_checkpoint_file: Path = Path("./data/agent_checkpoints.db")
     file_storage_dir: Path = Path("./data/files")
 
     # Milvus 连接和单一 Chunk Collection 配置。
@@ -119,9 +127,19 @@ class Settings(BaseSettings):
         return self.resolve_path(self.embedding_model_path)
 
     @property
+    def log_path(self) -> Path:
+        """应用运行日志文件的绝对路径。"""
+        return self.resolve_path(self.log_file)
+
+    @property
     def file_storage_path(self) -> Path:
         """上传原文件目录的绝对路径。"""
         return self.resolve_path(self.file_storage_dir)
+
+    @property
+    def agent_checkpoint_path(self) -> Path:
+        """LangGraph Checkpoint SQLite 文件的绝对路径。"""
+        return self.resolve_path(self.agent_checkpoint_file)
 
     @property
     def milvus_connection_args(self) -> dict[str, str]:
