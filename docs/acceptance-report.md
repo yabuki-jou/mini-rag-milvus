@@ -2,68 +2,73 @@
 
 ## 验收范围
 
-检查当前单机学习版的需求、实现、自动化测试和文档一致性。真实 Milvus、BGE、DeepSeek 端到端结果需结合运行环境另行记录。
+2026-08-05 检查员工请假领域删除、业务库 PostgreSQL 化、Agent 收缩、迁移链、
+测试和文档一致性。旧 SQLite 业务数据不迁移；Checkpoint SQLite 保留。
 
 ## 需求追踪
 
-| 需求 | 实现 | 测试 | 当前结论 |
-| --- | --- | --- | --- |
-| FR-001..003 用户/知识库/隔离 | routers + auth/resources deps | 越权场景间接覆盖 | 通过；创建接口独立测试不足 |
-| FR-004/005 上传 | file/document services | file service 和路由场景 | 部分覆盖；四格式真实上传需人工 |
-| FR-006/007 解析/入库/重跑 | parser/chunk/embedding/vector/document | `test_document_processing.py` | 通过（外部服务 Mock） |
-| FR-008 检索 | retrieval service/router | `test_retrieval.py` | 通过 |
-| FR-009..013 问答/历史 | chat service/router、rag_agent | chat 两个测试文件 | 通过（DeepSeek Mock） |
-| FR-014 删除 | document/file/vector services | delete/file 测试 | 通过（Milvus Mock） |
-| FR-015 健康 | health router | 无独立测试 | 需真实环境验证 |
-| FR-016 日志 | logging middleware | 无独立测试 | 人工观察通过，自动覆盖缺失 |
-| NFR-010 数据迁移 | Alembic `0001`/`0002`、启动迁移服务 | `test_migrations.py` | 通过（临时旧库与空库） |
-| FR-024..026 请假领域基础 | leave models/service | `test_leave_service.py` | 领域层通过；写工具的人工确认和 API 尚未实现 |
-| FR-023..025 Agent 只读链路 | policy/leave tools、`agents/admin` | `test_read_tools.py`、`test_admin_graph.py` | 工具与 Graph 通过；API 尚未接入 |
-| FR-027 多轮状态基础 | `AdminAgentState`、`AdminAgentRuntime`、独立 Checkpoint SQLite | `test_admin_graph.py` | 同 thread 跨 Runtime 恢复通过；interrupt/resume 尚未实现 |
+| 验收项 | 实现证据 | 验证结果 |
+|---|---|---|
+| AC-001 PostgreSQL 空库迁移 | Psycopg、Compose PostgreSQL、Alembic `0001..0004` | 离线 PostgreSQL SQL 生成通过；真实空库测试因无本机服务而跳过 |
+| AC-002 无请假表/Enum | `0004_remove_leave_domain.py` | SQLModel metadata 无三表；离线 SQL 各生成一次 Enum create/drop |
+| AC-003 无可执行请假能力 | 删除 model/service/tool/contracts、决定 API 和相关测试 | 运行时代码无请假导入；历史迁移和删除说明保留 |
+| AC-004 Agent 只注册制度工具 | `app/agents/admin/graph.py` | Graph/Tool/API 测试通过 |
+| AC-005 PostgreSQL 业务库、SQLite Checkpoint | 配置校验、`app/db.py`、Runtime | SQLite 业务 URL 会被拒绝；Checkpoint 恢复测试通过 |
+| AC-006 自动检查 | pytest、compileall、OpenAPI/metadata 检查 | 通过；真实 PostgreSQL 与 Docker Compose CLI 未验证 |
 
 ## 自动化检查
 
-| 检查 | 命令 | 本次结果 |
-| --- | --- | --- |
-| Pytest | `python -m pytest -q` | 通过：68 passed，1 warning，12.30s |
-| Python 编译 | `python -m compileall -q app tests` | 通过 |
-| Lint / 类型 | 无配置 | 未执行，不能判定通过 |
-| 覆盖率 | 无配置 | 未统计 |
+| 检查 | 命令摘要 | 结果 |
+|---|---|---|
+| 全量测试 | `rag-study/python -m pytest -q`，进程级 PostgreSQL URL | `68 passed, 1 skipped, 1 warning` |
+| PostgreSQL 专用测试 | `tests/test_postgres_migrations.py` | 跳过：未提供 `POSTGRES_TEST_URL` |
+| Python 编译 | `python -m compileall -q app tests migrations` | 通过 |
+| PostgreSQL 离线迁移 | `alembic upgrade head --sql` | 通过；head 为 `0004_remove_leave_domain` |
+| OpenAPI/metadata | Python 断言 | 12 个路径；7 张表；无 decisions/请假表 |
+| Compose YAML | PyYAML 结构断言 | 通过；包含 PostgreSQL 健康依赖 |
+| Docker Compose CLI | `docker compose config --quiet` | 未执行成功：当前终端找不到 Docker CLI |
+| Lint/类型/覆盖率 | 项目未配置 | 未执行 |
 
-Pytest 的唯一警告来自 FastAPI TestClient 对当前 `httpx` 集成方式的弃用提示，
-不是业务测试失败；后续升级 FastAPI/Starlette/httpx 时需要重新核对兼容组合。
+唯一警告来自 FastAPI TestClient 对 `httpx` 的弃用提示，不是业务失败。
 
-## 接口与数据一致性
+## 已实现
 
-- `app/routers` 当前注册 12 个 HTTP 操作；字段来自 `app/schemas`。
-- 解析前删除旧 Chunk，成功后才写 `READY/chunk_count`。
-- 删除状态支持失败补偿，测试验证三字段 Milvus 过滤。
-- `[TODO]` OpenAPI 未显式声明全部业务错误响应。
-- `[TODO]` 自动化测试未连接独立 Milvus Collection 验证最终实体数。
-- `[TODO]` 没有孤儿 Chunk 定期扫描/修复工具。
-- `[TODO]` 已确认的空知识库删除规则尚未实现：非空知识库应拒绝删除且保持关联数据不变。
-- `[TODO]` 已确认的登录会话存储尚未实现：数据库应只保存 Refresh Token 哈希，并能在退出后拒绝旧 Token。
+- 业务 Engine 默认且强制使用 `postgresql+psycopg://`，启用连接预检查。
+- Compose 新增 `postgres:16-alpine`、健康检查和持久化卷。
+- Alembic 保留历史请假迁移，并用前向 `0004` 删除三表及 PostgreSQL Enum。
+- Agent 只保留制度检索 Tool、会话、历史、引用、Checkpoint 和脱敏审计。
+- `/agent-sessions/{session_id}/decisions` 与待确认响应契约已删除。
+- 需求、架构、数据库、API、计划、README、导览和演示文档已同步。
 
-## 未实现、部分实现、无法验证
+## 无法验证与后续动作
 
-- 未实现：已确认的完整登录认证和知识库修改删除，以及前端、异步任务、OCR、混合检索、Rerank、Agent API、人工确认、CI、lint、类型检查和覆盖率阈值。用户资料修改和账号删除不属于需求。
-- 部分实现：员工、余额、申请领域层、四个只读工具、正式只读 Graph 和 Checkpointer 已实现；身份隔离已在 Graph 工具链验证，但当前身份头仍可伪造，JWT Access Token + Refresh Token 尚未实现。日志无指标/Tracing；跨存储一致性无原子事务。
-- 当前自动测试无法证明：真实 BGE/Milvus/DeepSeek、三份制度材料 10 问的人工回归。
+- 本机当前未发现可调用的 Docker CLI、PostgreSQL 客户端或 PostgreSQL 服务，
+  因此没有实际连接空 PostgreSQL 执行在线迁移，也没有启动完整 Compose。
+- 本地私有 `.env` 仍覆盖为 SQLite。项目按安全规则没有读取或改写它；应用现在
+  会明确拒绝旧 URL。需要用户参照 `.env.example` 手动更新。
+- 更新 `.env` 并准备空测试库后，运行：
+
+```powershell
+$env:POSTGRES_TEST_URL='postgresql+psycopg://user:password@localhost:5432/empty_test_db'
+python -m pytest -q tests/test_postgres_migrations.py
+docker compose config --quiet
+docker compose up -d postgres
+python -m alembic upgrade head
+```
+
+`POSTGRES_TEST_URL` 必须是空的专用测试数据库；测试会拒绝非空库。
 
 ## 风险
 
-1. 高：`X-User-ID` 不适用于公开网络；当前仅接受个人学习和可信朋友小范围使用，扩大范围前必须完成 FR-021。
-2. 中：无上传大小限制，同步解析可能耗尽资源。
-3. 中：SQLite、文件和 Milvus 无原子事务。
-4. 中：已有 Alembic 迁移，但尚未在用户的真实业务库上执行升级；DeepSeek 仍缺少显式超时/重试。
-5. 低：`pypdf`、`python-docx`、`langchain-text-splitters` 未锁定版本。
+1. 高：`X-User-ID` 可伪造，不适用于公开网络。
+2. 中：Checkpoint SQLite 不能支持多实例部署。
+3. 中：PostgreSQL、Milvus 和文件系统没有分布式事务。
+4. 中：真实 PostgreSQL 在线迁移和完整 Compose 尚未验证。
+5. 中：标书领域仍未完成需求、数据模型和质量评测设计。
 
-## 当前结论
+## 结论
 
-代码满足“单机学习版完整 RAG 后端”的主要目标，并完成企业行政 Agent 的迁移、请假领域基础、四个只读工具、正式只读 Graph 和 SQLite Checkpointer。人工确认、写工具和 Agent API 尚未实现；Mock 测试也不能替代真实外部系统集成验收。
-
-## 证据
-
-- `tests/test_*.py`
-- `app/routers/`、`app/schemas/`、`app/services/`
-- `app/core/logging.py`、`app/core/errors.py`
+请假领域删除和 PostgreSQL 代码/配置迁移已经完成，并通过当前可运行的单元、
+Graph、API、SQLite 迁移逻辑、离线 PostgreSQL SQL、编译和结构检查。由于缺少
+本机 PostgreSQL/Docker 运行环境，不能把“真实 PostgreSQL 在线迁移、容器启动
+和健康检查”写成已通过。

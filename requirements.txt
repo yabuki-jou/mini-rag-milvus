@@ -4,9 +4,10 @@ uvicorn[standard]==0.51.0
 pydantic-settings==2.14.2
 python-multipart==0.0.32
 
-## SQLite
+## 业务数据库与迁移
 sqlmodel==0.0.39
 alembic==1.18.5
+psycopg[binary]==3.3.4
 
 ## Embedding
 langchain-huggingface==1.2.2

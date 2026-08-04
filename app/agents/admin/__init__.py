@@ -1,13 +1,5 @@
-"""企业行政 Agent 的状态、编排和持久化运行时。"""
+"""企业知识库 Agent 的状态、编排和持久化运行时。
 
-from app.agents.admin.graph import build_admin_graph
-from app.agents.admin.runtime import AdminAgentRuntime, build_admin_runtime
-from app.agents.admin.state import AdminAgentState
-
-
-__all__ = [
-    "AdminAgentRuntime",
-    "AdminAgentState",
-    "build_admin_graph",
-    "build_admin_runtime",
-]
+包入口不主动导入 Graph 或 Tool，避免普通模块导入时初始化重量级依赖。
+调用者应从 ``state``、``graph`` 或 ``runtime`` 子模块导入。
+"""

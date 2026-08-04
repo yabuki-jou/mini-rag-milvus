@@ -8,7 +8,7 @@ from fastapi import Depends
 from app.core.errors import AppError
 from app.dependencies.auth import CurrentUserDep
 from app.dependencies.database import SessionDep
-from app.models import ChatSession, Document, KnowledgeBase
+from app.models import AgentSession, ChatSession, Document, KnowledgeBase
 
 
 def get_owned_knowledge_base(
@@ -143,4 +143,37 @@ def get_owned_chat_session(
 OwnedChatSessionDep = Annotated[
     ChatSession,
     Depends(get_owned_chat_session),
+]
+
+
+def get_owned_agent_session(
+    session_id: UUID,
+    session: SessionDep,
+    current_user: CurrentUserDep,
+) -> AgentSession:
+    """查询 Agent 会话，并验证它是否属于当前用户。
+
+    Args:
+        session_id: 请求路径中的 Agent 会话 UUID。
+        session: 当前请求使用的数据库 Session。
+        current_user: 已通过身份校验的当前用户。
+
+    Returns:
+        当前用户拥有的 Agent 会话记录。
+
+    Raises:
+        AppError: Agent 会话不存在或不属于当前用户。
+    """
+    agent_session = session.get(AgentSession, session_id)
+    if agent_session is None:
+        raise AppError(404, "AGENT_SESSION_NOT_FOUND", "Agent 会话不存在。")
+    if agent_session.user_id != current_user.id:
+        raise AppError(403, "AGENT_SESSION_FORBIDDEN", "无权访问该 Agent 会话。")
+    return agent_session
+
+
+# 所有基于会话执行的 Agent 路由都必须先通过此所有权依赖。
+OwnedAgentSessionDep = Annotated[
+    AgentSession,
+    Depends(get_owned_agent_session),
 ]

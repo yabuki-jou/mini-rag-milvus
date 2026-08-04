@@ -1,4 +1,4 @@
-"""管理企业行政 Agent 的模型、Graph 和 SQLite Checkpoint 生命周期。"""
+"""管理企业知识库 Agent 的模型、Graph 和 SQLite Checkpoint 生命周期。"""
 
 import sqlite3
 from dataclasses import dataclass
@@ -7,7 +7,6 @@ from typing import Any, Self
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
-
 from app.agents.admin.graph import build_admin_graph
 from app.core.config import settings
 
@@ -92,7 +91,7 @@ def build_admin_runtime(
     model: Any | None = None,
     checkpoint_path: Path | None = None,
 ) -> AdminAgentRuntime:
-    """创建带独立 SQLite Checkpointer 的企业行政 Agent 运行时。
+    """创建带独立 SQLite Checkpointer 的企业知识库 Agent 运行时。
 
     Args:
         model: 可选聊天模型；未提供时延迟创建配置的 DeepSeek 客户端。

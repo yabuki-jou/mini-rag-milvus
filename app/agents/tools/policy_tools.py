@@ -7,7 +7,27 @@ from langgraph.prebuilt import InjectedState
 from pydantic import Field
 
 from app.agents.tools.context import AgentContextError, require_state_uuid
+from app.core.evaluation import eval_wrap
 from app.services.retrieval_service import retrieve_chunks
+
+
+def _retrieve_policy_data(user_id: Any, kb_id: Any, query: str) -> list[dict[str, Any]]:
+    """执行正式检索并转换为适合评测注入的纯数据结构。"""
+    return [
+        {
+            "chunk_id": chunk.chunk_id,
+            "document_id": str(chunk.document_id),
+            "document_name": chunk.document_name,
+            "page": chunk.page,
+            "content": chunk.content,
+            "score": chunk.score,
+        }
+        for chunk in retrieve_chunks(
+            user_id=user_id,
+            kb_id=kb_id,
+            question=query,
+        )
+    ]
 
 
 @tool
@@ -34,12 +54,13 @@ def search_company_policy(
     user_id = require_state_uuid(state, "user_id")
     kb_id = require_state_uuid(state, "kb_id")
 
-    retrieved_chunks = retrieve_chunks(
-        user_id=user_id,
-        kb_id=kb_id,
-        question=normalized_query,
-    )
-    if not retrieved_chunks:
+    results = eval_wrap(
+        _retrieve_policy_data,
+        purpose="input",
+        name="policy_retrieval_result",
+        description="当前授权知识库返回的制度检索 Chunk",
+    )(user_id, kb_id, normalized_query)
+    if not results:
         return {
             "query": normalized_query,
             "found": False,
@@ -52,15 +73,5 @@ def search_company_policy(
         "query": normalized_query,
         "found": True,
         "message": None,
-        "results": [
-            {
-                "chunk_id": chunk.chunk_id,
-                "document_id": str(chunk.document_id),
-                "document_name": chunk.document_name,
-                "page": chunk.page,
-                "content": chunk.content,
-                "score": chunk.score,
-            }
-            for chunk in retrieved_chunks
-        ],
+        "results": results,
     }
