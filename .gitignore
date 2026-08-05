@@ -7,3 +7,7 @@ __pycache__/
 data/
 logs/
 docs/
+!docs/
+docs/*
+!docs/agent-guide.md
+!docs/agent-demo.md
