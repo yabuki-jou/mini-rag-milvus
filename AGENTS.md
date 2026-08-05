@@ -6,48 +6,35 @@
 
 ## 项目定位
 
-本项目是个人学习为主、可供朋友小范围使用的企业知识库与行政 Agent 后端，使用 FastAPI、SQLModel、SQLite、LangChain、LangGraph、本地 BGE、Milvus 和 DeepSeek。Swagger 是当前唯一操作界面，不以公开多用户网站为部署目标。
+本项目是个人学习为主、可供朋友小范围使用的企业知识库与只读 Agent 后端，使用 FastAPI、SQLModel、PostgreSQL、LangChain、LangGraph、本地 BGE、Milvus 和 DeepSeek。Swagger 是当前唯一操作界面，不以公开多用户网站为部署目标。
 
-现有可验收能力包括 RAG 后端、Alembic 迁移基线、员工与请假领域层，以及已接入正式只读 Graph 的制度、余额和申请查询工具。Graph 使用独立 SQLite Checkpointer 保存同一 thread 的消息与授权范围；人工确认、写工具、Agent API 和完整登录认证仍未实现，在相应步骤通过测试前不得写成现有能力。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
+现有能力包括 RAG 后端、PostgreSQL/Alembic 业务库、制度检索工具，以及带 SQLite Checkpointer 的单 Agent Graph。独立 Agent API 支持会话、消息、历史和脱敏工具日志查询。员工请假领域、写工具、人工确认与决定接口已经删除；工程标书解析、生成与合规审查只是后续方向，在完成需求和验证前不得写成现有能力。完整登录认证仍未实现。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
 
-## 企业行政 Agent 计划
+## 企业知识库 Agent 当前范围
 
 目标是完成可通过 Swagger 演示、可写入简历的单 Agent 业务闭环，而不是追求 Tool 或 Agent 数量。
 
-已确认工具：
+当前唯一工具：
 
 ```text
 search_company_policy      查询当前会话绑定知识库中的公司制度
-query_my_leave_balance     查询当前用户自己的假期余额
-list_my_leave_requests     列出当前用户自己的请假申请
-get_my_leave_request       查看当前用户自己的申请详情
-create_leave_request       经人工确认后幂等创建请假申请
 ```
 
 目标链路：
 
 ```text
-用户消息 → DeepSeek 判断意图或追问缺失参数
-→ 只读工具直接执行 / 写工具生成草稿
-→ create_leave_request 使用 LangGraph interrupt 暂停
-→ 用户批准或拒绝 → 恢复 Graph
-→ 批准后幂等写入 SQLite → 返回结果、引用和调用记录
+用户消息 → 校验 Agent 会话授权范围
+→ DeepSeek 判断是否调用制度检索工具
+→ 工具使用服务端注入的 user_id + kb_id 检索 Milvus
+→ DeepSeek 仅依据工具结果回答
+→ 返回引用并把脱敏调用记录写入 PostgreSQL
 ```
 
-十个实施步骤：
+当前状态以 `docs/implementation-plan.md` 和本次实际验证为准。历史 `89 passed` 结果属于已删除请假领域的旧版本，不得作为当前版本测试结论。真实 BGE + Milvus + DeepSeek 单问题结果仍只证明当时的有限链路，不代表当前 PostgreSQL 部署或多文档质量已经复验。
 
-1. 文档与架构基线。
-2. Alembic 迁移基线并保留现有数据。
-3. 员工、余额、请假申请模型和领域规则。
-4. 制度、余额和申请查询等只读工具。
-5. Agent State、Prompt、Graph 与 SQLite Checkpointer。
-6. 请假草稿、人工确认、恢复和幂等写入。
-7. 独立 Agent API、会话权限和历史查询。
-8. 错误分类、重试、权限和脱敏工具日志。
-9. 单元、Graph、API、迁移测试和真实模型评测。
-10. README、架构图、演示脚本和验收报告。
+验证边界：真实 BGE + Milvus + DeepSeek 结果只证明了当前测试知识库中的单文档、单问题链路可用，尚未完成多文档 10 问的整体召回质量评测。测试时通过进程级配置覆盖使用了实际存在的模型目录；项目 `.env` 中的持久化路径仍需改为从项目根目录可解析的 `../../py-doc/py-doc-deepseek-server/models/bge-small-zh-v1.5`，在实际修改并复验前不得宣称该配置问题已解决。
 
-详细需求、数据与接口分别以 `docs/requirements.md`、`database-design.md` 和 `api-design.md` 为准；实时进度以 `LEARNING_PLAN.md` 为准。正式企业行政 Agent 位于 `app/agents/admin/`；旧 `leave_graph.py` 和 `tool_calling_agent.py` 不再作为入口。
+详细需求、数据与接口分别以 `docs/requirements.md`、`database-design.md` 和 `api-design.md` 为准；实时进度以 `LEARNING_PLAN.md` 为准。正式企业知识库 Agent 位于 `app/agents/admin/`。
 
 ## 文档驱动顺序
 
@@ -71,31 +58,30 @@ Router → Application Service → Agent / Domain Service
 - `app/routers/`：HTTP 输入输出、状态码和依赖注入。
 - `app/dependencies/`：Session、当前用户和资源所有权。
 - `app/services/`：应用流程、领域规则、事务、解析、切分、Embedding、检索和外部客户端。
-- `app/agents/`：LangGraph 状态、Prompt、工具、编排、暂停恢复和调用观测；不得直接保存数据库 Session。
-- `app/models/`：SQLite 模型；`app/schemas/`：HTTP 契约。
+- `app/agents/`：LangGraph 状态、Prompt、只读工具、编排和调用观测；不得直接保存数据库 Session。
+- `app/models/`：PostgreSQL 业务模型；`app/schemas/`：HTTP 契约。
 - `app/core/`：配置、日志和异常。
 
 当前没有 Repository 层。未经架构确认，不要只为模仿 Spring Boot 增加空转层。
 
 ## 数据与安全规则
 
-- SQLite 保存业务实体和状态；Milvus 保存 Chunk、引用元数据和向量；文件系统保存原文件。
-- LangGraph Checkpoint 使用独立 SQLite 文件，只保存可序列化的执行状态、消息和中断，不代替业务表。
-- `document_id` 必须贯穿 SQLite、文件路径和 Milvus。
+- PostgreSQL 保存业务实体和状态；Milvus 保存 Chunk、引用元数据和向量；文件系统保存原文件。
+- LangGraph Checkpoint 使用独立 SQLite 文件，只保存可序列化的执行状态和消息，不代替业务表。
+- `document_id` 必须贯穿 PostgreSQL、文件路径和 Milvus。
 - 受保护接口必须先验证真实存在的 `X-User-ID` 和资源归属。
 - Milvus 检索必须包含 `user_id + kb_id`；文档删除必须再包含 `document_id`。
 - 不接受客户端覆盖资源的 `owner_id` 或 `user_id`。
-- Agent 工具的 `user_id`、`kb_id` 和员工身份必须由已验证上下文注入，不能由模型生成。
-- 创建请假等写操作必须先暂停并取得当前用户明确确认；恢复后的写入必须幂等。
+- Agent 工具的 `user_id` 和 `kb_id` 必须由已验证上下文注入，不能由模型生成。
 - Agent Graph State 只能保存可序列化数据，不得保存数据库 Session、Engine、模型客户端或向量库客户端。
-- Tool 保持薄层；工作日计算、余额校验、重复申请和事务由领域 Service 负责。
-- 只对超时和连接失败重试；参数、权限、余额不足、拒答和用户拒绝不重试。
+- Tool 保持薄层；检索和外部访问规则由 Service 负责。
+- 只对超时和连接失败重试；参数、权限和拒答不重试。
 - 工具日志只保存脱敏摘要，不保存完整制度正文、Token、密码或模型隐藏推理。
 - 未知异常只在服务端日志记录细节，不把 `str(exc)` 返回客户端。
 - 登录功能实施后只能保存密码哈希，不得保存、记录或返回明文密码。
 - JWT 实施后，受保护接口必须从已验证 Token 获取用户身份，不再信任客户端直接提交的 `X-User-ID`。
 - Access Token 和 Refresh Token 必须使用不同用途声明和有效期，刷新接口不得接受 Access Token 代替 Refresh Token。
-- SQLite 只保存 Refresh Token 的单向哈希和会话状态，不得保存 Token 明文；退出登录必须撤销对应会话。
+- PostgreSQL 只保存 Refresh Token 的单向哈希和会话状态，不得保存 Token 明文；退出登录必须撤销对应会话。
 - 为保持学习项目简单，Refresh Token 在有效且未撤销期间可以重复使用；刷新时只签发新的 Access Token，不轮换 Refresh Token。
 - 不读取、打印或提交 `.env`、密钥、数据库、上传文件和运行日志。
 

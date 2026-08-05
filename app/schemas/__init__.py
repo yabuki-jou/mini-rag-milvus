@@ -6,6 +6,15 @@ from app.schemas.account import (
     UserCreate,
     UserRead,
 )
+from app.schemas.agent import (
+    AgentExecutionStatus,
+    AgentMessageCreate,
+    AgentMessageRead,
+    AgentResponse,
+    AgentSessionCreate,
+    AgentSessionRead,
+    AgentToolCallLogRead,
+)
 from app.schemas.chat import (
     ChatAnswerResponse,
     ChatMessageRead,
@@ -24,6 +33,13 @@ from app.schemas.retrieval import (
 
 
 __all__ = [
+    "AgentExecutionStatus",
+    "AgentMessageCreate",
+    "AgentMessageRead",
+    "AgentResponse",
+    "AgentSessionCreate",
+    "AgentSessionRead",
+    "AgentToolCallLogRead",
     "ChatAnswerResponse",
     "ChatMessageRead",
     "ChatQuestionRequest",

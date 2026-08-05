@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -48,13 +48,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # 应用、SQLite 和原文件存储配置。
+    # 应用、PostgreSQL、Checkpoint SQLite 和原文件存储配置。
     app_name: str = "Mini RAG Milvus"
     app_env: str = "development"
     log_file: Path = Path("./logs/app.log")
     log_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     log_backup_count: int = Field(default=5, ge=0)
-    database_url: str = "sqlite:///./data/handwrite.db"
+    database_url: str = (
+        "postgresql+psycopg://mini_rag:mini_rag@localhost:5432/mini_rag"
+    )
     agent_checkpoint_file: Path = Path("./data/agent_checkpoints.db")
     file_storage_dir: Path = Path("./data/files")
 
@@ -65,7 +67,7 @@ class Settings(BaseSettings):
 
     # 本地 Embedding 模型及其输出维度配置。
     embedding_model_path: Path = Path(
-        "../py-doc-deepseek-server/models/bge-small-zh-v1.5"
+        "../py-doc/py-doc-deepseek-server/models/bge-small-zh-v1.5"
     )
     embedding_device: str = "cpu"
     embedding_dimension: int = Field(default=512, gt=0)
@@ -87,6 +89,18 @@ class Settings(BaseSettings):
         ge=-1.0,
         le=1.0,
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_postgres_database_url(cls, value: str) -> str:
+        """拒绝旧 SQLite 配置，确保业务数据库只能使用 Psycopg。"""
+        normalized = value.strip()
+        if not normalized.startswith("postgresql+psycopg://"):
+            raise ValueError(
+                "DATABASE_URL 必须使用 postgresql+psycopg://；"
+                "请按 .env.example 更新本地 .env。"
+            )
+        return normalized
 
     @model_validator(mode="after")
     def validate_retrieval_limits(self) -> Self:

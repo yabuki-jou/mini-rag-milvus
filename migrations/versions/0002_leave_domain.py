@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0002_leave_domain"
@@ -14,6 +15,25 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """创建确定性请假领域所需的三张业务表。"""
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        postgresql.ENUM(
+            "ANNUAL", "SICK", name="leavetype"
+        ).create(bind, checkfirst=True)
+        postgresql.ENUM(
+            "SUBMITTED", name="leaverequeststatus"
+        ).create(bind, checkfirst=True)
+        leave_type_enum = postgresql.ENUM(
+            "ANNUAL", "SICK", name="leavetype", create_type=False
+        )
+        request_status_enum = postgresql.ENUM(
+            "SUBMITTED", name="leaverequeststatus", create_type=False
+        )
+    else:
+        leave_type_enum = sa.Enum("ANNUAL", "SICK", name="leavetype")
+        request_status_enum = sa.Enum(
+            "SUBMITTED", name="leaverequeststatus"
+        )
     op.create_table(
         "employee_profiles",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -46,7 +66,7 @@ def upgrade() -> None:
         sa.Column("employee_id", sa.Uuid(), nullable=False),
         sa.Column(
             "leave_type",
-            sa.Enum("ANNUAL", "SICK", name="leavetype"),
+            leave_type_enum,
             nullable=False,
         ),
         sa.Column("total_days", sa.Integer(), nullable=False),
@@ -84,7 +104,7 @@ def upgrade() -> None:
         sa.Column("employee_id", sa.Uuid(), nullable=False),
         sa.Column(
             "leave_type",
-            sa.Enum("ANNUAL", "SICK", name="leavetype"),
+            leave_type_enum,
             nullable=False,
         ),
         sa.Column("start_date", sa.Date(), nullable=False),
@@ -93,7 +113,7 @@ def upgrade() -> None:
         sa.Column("reason", sa.String(length=500), nullable=False),
         sa.Column(
             "status",
-            sa.Enum("SUBMITTED", name="leaverequeststatus"),
+            request_status_enum,
             nullable=False,
         ),
         sa.Column("idempotency_key", sa.String(length=100), nullable=False),
@@ -126,3 +146,7 @@ def downgrade() -> None:
     op.drop_table("leave_requests")
     op.drop_table("leave_balances")
     op.drop_table("employee_profiles")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        postgresql.ENUM(name="leaverequeststatus").drop(bind, checkfirst=True)
+        postgresql.ENUM(name="leavetype").drop(bind, checkfirst=True)

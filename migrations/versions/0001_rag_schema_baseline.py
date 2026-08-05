@@ -35,6 +35,10 @@ def _ensure_table(
     create_table: Callable[[], None],
 ) -> None:
     """创建缺失表，或拒绝把不兼容旧表直接标记为基线。"""
+    # 离线模式没有可反射的真实连接，只负责生成空库建表 SQL。
+    if op.get_context().as_sql:
+        create_table()
+        return
     inspector = sa.inspect(op.get_bind())
     if table_name not in inspector.get_table_names():
         create_table()
@@ -53,6 +57,9 @@ def _ensure_table(
 
 def _ensure_index(name: str, table_name: str, columns: list[str]) -> None:
     """为旧数据库补充当前模型声明但尚不存在的普通索引。"""
+    if op.get_context().as_sql:
+        op.create_index(name, table_name, columns, unique=False)
+        return
     inspector = sa.inspect(op.get_bind())
     existing_names = {
         index["name"] for index in inspector.get_indexes(table_name)

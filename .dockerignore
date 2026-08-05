@@ -1,0 +1,29 @@
+# 密钥和仅供本地开发使用的配置不能进入构建上下文。
+.env
+.env.*
+!.env.example
+
+# 版本控制、IDE、虚拟环境和 Python 缓存不参与镜像构建。
+.git
+.gitignore
+.idea
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+
+# 运行时数据必须通过卷持久化，不能固化进镜像。
+data
+logs
+*.db
+*.log
+
+# 测试、评测和项目文档不是当前运行镜像的组成部分。
+tests
+pixie_qa
+docs
+requirements-dev.txt
+README.md
+AGENTS.md
+LEARNING_PLAN.md
+pyguide_zh-CN.md

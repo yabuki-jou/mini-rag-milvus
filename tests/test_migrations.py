@@ -1,4 +1,4 @@
-"""验证 Alembic 基线可创建空库并安全接管旧 RAG Schema。"""
+"""用隔离 SQLite 快速验证 Alembic 迁移逻辑和模型一致性。"""
 
 from uuid import uuid4
 
@@ -19,9 +19,8 @@ EXPECTED_BUSINESS_TABLES = {
     "documents",
     "chat_sessions",
     "chat_messages",
-    "employee_profiles",
-    "leave_balances",
-    "leave_requests",
+    "agent_sessions",
+    "agent_tool_call_logs",
 }
 
 LEGACY_TABLES = (
@@ -54,12 +53,12 @@ def test_upgrade_creates_current_schema_in_empty_database(tmp_path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0002_leave_domain"
+    assert revision == "0004_remove_leave_domain"
     engine.dispose()
 
 
 def test_upgrade_preserves_data_in_legacy_schema(tmp_path) -> None:
-    """create_all 创建的旧库应保留数据并被纳入迁移版本。"""
+    """迁移链执行时应保留旧 RAG 数据并移除临时请假领域。"""
     database_path = tmp_path / "legacy.db"
     target_url = sqlite_url(database_path)
     engine = create_engine(target_url)
