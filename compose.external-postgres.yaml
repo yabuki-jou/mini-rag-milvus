@@ -1,0 +1,6 @@
+# 本机 Docker API 连接外部 PostgreSQL 的覆盖配置。
+# 不包含数据库地址、账号或密码；它仅读取本地 .env 中已有的 DATABASE_URL。
+services:
+  api:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?请先在 .env 中配置可从 Docker 容器访问的 PostgreSQL DATABASE_URL}

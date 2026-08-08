@@ -1,0 +1,70 @@
+name: mini-rag-handwrite
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # 容器运行时覆盖本地开发路径，数据统一写入持久化卷。
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mini_rag}:${POSTGRES_PASSWORD:-mini_rag}@postgres:5432/${POSTGRES_DB:-mini_rag}
+      AGENT_CHECKPOINT_FILE: /app/data/agent_checkpoints.db
+      FILE_STORAGE_DIR: /app/data/files
+      LOG_FILE: /app/logs/app.log
+      EMBEDDING_MODEL_PATH: /models/bge-small-zh-v1.5
+      # Compose 网络通过服务名寻址，容器内的 localhost 只指向 API 自身。
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      CHROMA_TENANT: mini_rag_tenant
+      CHROMA_DATABASE: mini_rag_chroma
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_data:/app/data
+      - app_logs:/app/logs
+      # 默认使用当前工作区已有模型；其他机器可通过同名环境变量覆盖源目录。
+      - type: bind
+        source: ${EMBEDDING_MODEL_HOST_PATH:-../../py-doc/py-doc-deepseek-server/models/bge-small-zh-v1.5}
+        target: /models/bge-small-zh-v1.5
+        read_only: true
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mini_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-mini_rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mini_rag}
+    # 仅暴露到宿主机回环地址，便于本机 Alembic/Navicat；外网不能直连数据库。
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  chroma:
+    # C01 已验证的镜像 digest；禁止使用会漂移的 latest 标签。
+    image: chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+    volumes:
+      - chroma_data:/data
+    # API 已占用宿主机 8000；以 8001 回环映射供本机直接运行的 Python 访问。
+    # 局域网和公网均不可访问；Compose 内 API 仍使用 chroma:8000。
+    ports:
+      - "127.0.0.1:8001:8000"
+
+volumes:
+  postgres_data:
+  app_data:
+  app_logs:
+  chroma_data:

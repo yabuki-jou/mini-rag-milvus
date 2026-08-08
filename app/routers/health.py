@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.db import engine
 from app.schemas import HealthComponent, HealthResponse
 from app.services.model_service import get_embeddings
-from app.services.vector_service import list_collections
+from app.services.vector_service import check_chroma_connection
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -16,7 +16,7 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 def health_check(response: Response) -> HealthResponse:
-    """独立检查 API、数据库、Milvus 和 Embedding 是否可用。
+    """独立检查 API、数据库、Chroma 和 Embedding 是否可用。
 
     Args:
         response: FastAPI 响应对象，用于在组件异常时设置 HTTP 503。
@@ -41,18 +41,18 @@ def health_check(response: Response) -> HealthResponse:
             detail="数据库连接失败",
         )
 
-    # 只列出 Collection，不在健康检查中创建或修改 Milvus 数据。
+    # 只调用 Chroma 心跳，不在健康检查中创建或修改 Collection。
     try:
-        collections = list_collections()
-        components["milvus"] = HealthComponent(
+        check_chroma_connection()
+        components["chroma"] = HealthComponent(
             status="ok",
-            detail=f"collections={len(collections)}",
+            detail="heartbeat=ok",
         )
     except Exception:
-        logger.exception("Milvus 健康检查失败。")
-        components["milvus"] = HealthComponent(
+        logger.exception("Chroma 健康检查失败。")
+        components["chroma"] = HealthComponent(
             status="error",
-            detail="Milvus 连接失败",
+            detail="Chroma 连接失败",
         )
 
     # 生成一个真实向量，同时验证模型加载和输出维度。

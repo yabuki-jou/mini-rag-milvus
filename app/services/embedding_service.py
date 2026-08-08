@@ -1,5 +1,6 @@
 """为切分后的文本块批量生成向量，并保留 Chunk 业务字段。"""
 
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -7,6 +8,9 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.services.chunk_service import TextChunk, build_chunk_id
 from app.services.model_service import get_embeddings
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -63,12 +67,17 @@ def embed_chunks(
 
     except AppError:
         raise
-    except Exception as e:
+    except Exception as exc:
+        logger.exception(
+            "embedding_failed document_id=%s chunks=%s",
+            document_id,
+            len(text_chunks),
+        )
         raise AppError(
             status_code=503,
             code="EMBEDDING_FAILED",
             message="Chunk 向量生成失败。",
-        ) from e
+        ) from exc
 
     # 校验向量数量，防止 Chunk 与向量发生错位。
     if len(contents) != len(vectors):
@@ -78,7 +87,7 @@ def embed_chunks(
             message="Chunk 向量生成失败。",
         )
 
-    # 校验每个向量的维度是否与 Milvus Collection 配置一致。
+    # 校验每个向量的维度是否与 Chroma Collection 已冻结的模型维度一致。
     if any(len(vector) != settings.embedding_dimension for vector in vectors):
         raise AppError(
             status_code=500,

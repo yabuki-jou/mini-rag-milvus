@@ -7,8 +7,9 @@ from fastapi import FastAPI
 
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
-from app.db import create_db_and_tables
-from app.routers import documents, health, knowledge_bases, users
+from app.core.logging import RequestContextMiddleware, configure_logging
+from app.migration_service import upgrade_database
+from app.routers import agent, chat, documents, health, knowledge_bases, projects, retrieval, users
 
 
 @asynccontextmanager
@@ -21,22 +22,40 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     Yields:
         启动初始化完成后，将控制权交还给 FastAPI。
     """
-    # 应用接收请求前先创建缺失的 SQLite 表，已有表不会被重建。
-    create_db_and_tables()
+    # 应用接收请求前先验证旧 Schema，并按版本顺序执行缺失迁移。
+    upgrade_database()
     yield
 
+
+# 启动时安装控制台和文件日志，业务日志会自动携带 request_id。
+configure_logging(
+    log_file_path=settings.log_path,
+    max_bytes=settings.log_max_bytes,
+    backup_count=settings.log_backup_count,
+)
 
 # 集中创建 ASGI 应用，Uvicorn 通过 ``app.main:app`` 导入该对象。
 app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
-    description="从零手写的 FastAPI + LangChain + Milvus RAG 后端。",
+    description=(
+        "从零手写的 FastAPI + LangChain + Chroma RAG 后端。\n\n"
+        "智慧档案 V1 当前提供项目管理接口；内置清单仅为虚构演示规则，"
+        "不代表真实工程项目的法定或行业归档要求。"
+    ),
     lifespan=lifespan,
 )
+
+# 请求上下文中间件负责响应头、请求总耗时和全链路 request_id。
+app.add_middleware(RequestContextMiddleware)
 
 # 先安装统一异常响应，再按业务领域注册各组路由。
 register_exception_handlers(app)
 app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(knowledge_bases.router)
+app.include_router(projects.router)
 app.include_router(documents.router)
+app.include_router(retrieval.router)
+app.include_router(chat.router)
+app.include_router(agent.router)
