@@ -35,7 +35,7 @@ def retrieval_test_endpoint(
         清理后的问题和通过阈值过滤的 Top-N 检索结果。
 
     Raises:
-        AppError: 由检索服务返回的 Embedding、Milvus 或结果转换错误。
+        AppError: 由检索服务返回的 Embedding、Chroma 或结果转换错误。
     """
     # knowledge_base 依赖会先验证路径中的 kb_id 是否属于当前用户。
 

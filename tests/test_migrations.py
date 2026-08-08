@@ -5,12 +5,22 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, SQLModel
 
 from app import models as _models  # noqa: F401  注册当前业务表。
 from app.migration_service import build_alembic_config, upgrade_database
-from app.models import User
+from app.models import (
+    ArchiveDocument,
+    ArchiveDocumentStatus,
+    ArchiveOperation,
+    ArchiveOperationStatus,
+    ArchiveOperationType,
+    Document,
+    KnowledgeBase,
+    Project,
+    User,
+)
 
 
 EXPECTED_BUSINESS_TABLES = {
@@ -21,6 +31,15 @@ EXPECTED_BUSINESS_TABLES = {
     "chat_messages",
     "agent_sessions",
     "agent_tool_call_logs",
+    "projects",
+    "archive_documents",
+    "parsed_snapshots",
+    "archive_field_values",
+    "field_evidences",
+    "checklist_items",
+    "checklist_links",
+    "archive_operations",
+    "archive_audit_logs",
 }
 
 LEGACY_TABLES = (
@@ -53,7 +72,7 @@ def test_upgrade_creates_current_schema_in_empty_database(tmp_path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0004_remove_leave_domain"
+    assert revision == "0009_chroma_vector_comments"
     engine.dispose()
 
 
@@ -61,10 +80,10 @@ def test_upgrade_preserves_data_in_legacy_schema(tmp_path) -> None:
     """迁移链执行时应保留旧 RAG 数据并移除临时请假领域。"""
     database_path = tmp_path / "legacy.db"
     target_url = sqlite_url(database_path)
+    # 先建立真实的 0004 基线，再验证 0005 不会丢失已有 RAG 数据；不能拿演进后的
+    # SQLModel metadata 伪造旧库，否则 documents 的 file_hash 会提前出现。
+    command.upgrade(build_alembic_config(target_url), "0004_remove_leave_domain")
     engine = create_engine(target_url)
-    # 只创建 Agent 迭代前的五张表，不能让当前 metadata 偷跑新迁移。
-    for table_name in LEGACY_TABLES:
-        SQLModel.metadata.tables[table_name].create(engine)
 
     user_id = uuid4()
     with Session(engine) as session:
@@ -99,9 +118,90 @@ def test_upgrade_rejects_incompatible_legacy_table(tmp_path) -> None:
 
 
 def test_migration_head_matches_sqlmodel_metadata(tmp_path) -> None:
-    """升级到 head 后，Alembic 不应再发现未迁移的模型差异。"""
+    """升级到 head 后，关键智慧档案表和列必须实际存在。"""
     database_path = tmp_path / "metadata-check.db"
     target_url = sqlite_url(database_path)
     upgrade_database(target_url)
 
-    command.check(build_alembic_config(target_url))
+    engine = create_engine(target_url)
+    inspector = inspect(engine)
+    assert {"project_id", "file_hash"} <= {
+        column["name"] for column in inspector.get_columns("documents")
+    }
+    assert {
+        "status",
+        "current_snapshot_id",
+        "final_index_snapshot_hash",
+    } <= {column["name"] for column in inspector.get_columns("archive_documents")}
+    engine.dispose()
+
+
+def test_archive_constraints_cover_project_hash_confirmation_and_visibility(tmp_path) -> None:
+    """关键归档约束必须由数据库兜底，而不是依赖未来 API 或客户端。"""
+    database_path = tmp_path / "archive-constraints.db"
+    target_url = sqlite_url(database_path)
+    upgrade_database(target_url)
+    engine = create_engine(target_url)
+
+    with Session(engine) as session:
+        user = User(name="archive-owner")
+        knowledge_base = KnowledgeBase(owner_id=user.id, name="archive-kb")
+        session.add_all([user, knowledge_base])
+        session.commit()
+
+        project = Project(owner_id=user.id, kb_id=knowledge_base.id, name="项目 A")
+        session.add(project)
+        session.commit()
+
+        session.add(Project(owner_id=user.id, kb_id=uuid4(), name="项目 A"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        document = Document(
+            kb_id=knowledge_base.id,
+            project_id=project.id,
+            filename="a.txt",
+            storage_path="a.txt",
+            file_hash="a" * 64,
+        )
+        session.add(document)
+        session.commit()
+
+        duplicate = Document(
+            kb_id=knowledge_base.id,
+            project_id=project.id,
+            filename="duplicate.txt",
+            storage_path="duplicate.txt",
+            file_hash="a" * 64,
+        )
+        session.add(duplicate)
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        archive_document = ArchiveDocument(
+            document_id=document.id,
+            status=ArchiveDocumentStatus.UPLOADED,
+        )
+        session.add(archive_document)
+        session.commit()
+
+        session.add(
+            ArchiveOperation(
+                document_id=document.id,
+                operation_type=ArchiveOperationType.PARSE,
+                operation_status=ArchiveOperationStatus.RUNNING,
+                visibility_blocking=True,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        archive_document.status = ArchiveDocumentStatus.CONFIRMED
+        session.add(archive_document)
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+    engine.dispose()

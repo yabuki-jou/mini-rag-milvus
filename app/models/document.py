@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
+from sqlalchemy import ForeignKeyConstraint, Index
 from sqlmodel import Field, SQLModel
 
 from app.models.common import utc_now
@@ -14,8 +15,8 @@ class DocumentStatus(str, Enum):
 
     Attributes:
         UPLOADED: 原文件和 SQLite 记录已保存，尚未解析。
-        PROCESSING: 正在解析、切分、生成向量或写入 Milvus。
-        READY: 文档 Chunk 已成功写入 Milvus，可以参与检索。
+        PROCESSING: 正在解析、切分、生成向量或写入 Chroma。
+        READY: 文档 Chunk 已成功写入 Chroma，可以参与检索。
         FAILED: 文档解析或向量化失败。
         DELETING: 正在清理文档及其关联数据。
         DELETE_FAILED: 删除过程未完整结束，可以重试。
@@ -37,7 +38,8 @@ class Document(SQLModel, table=True):
         kb_id: 文档所属知识库的 ID。
         filename: 清理目录部分后的安全文件名。
         storage_path: 原文件在服务器上的存储路径。
-        content_hash: 原文件内容的 SHA-256 哈希值。
+        file_hash: 原文件内容的 SHA-256 哈希值。
+        project_id: 智慧档案项目 ID；旧知识库文档保持为空。
         status: 文档当前处理状态。
         chunk_count: 成功写入向量库的 Chunk 数量。
         error_message: 最近一次处理或删除失败的错误摘要。
@@ -46,12 +48,22 @@ class Document(SQLModel, table=True):
     """
 
     __tablename__ = "documents"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "kb_id"],
+            ["projects.id", "projects.kb_id"],
+            name="fk_documents_project_kb",
+        ),
+        Index("uq_documents_project_file_hash", "project_id", "file_hash", unique=True),
+        Index("ix_documents_project_created_id", "project_id", "created_at", "id"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     kb_id: UUID = Field(foreign_key="knowledge_bases.id", index=True)
+    project_id: UUID | None = Field(default=None, index=True)
     filename: str = Field(min_length=1, max_length=255, index=True)
     storage_path: str = Field(min_length=1, max_length=1024)
-    content_hash: str = Field(min_length=64, max_length=64, index=True)
+    file_hash: str = Field(min_length=64, max_length=64, index=True)
     status: DocumentStatus = Field(default=DocumentStatus.UPLOADED, index=True)
     chunk_count: int = Field(default=0, ge=0)
     error_message: str | None = Field(default=None, max_length=1000)

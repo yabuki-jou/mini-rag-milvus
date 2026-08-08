@@ -13,7 +13,7 @@ class AdminAgentState(MessagesState):
         user_id: 应用服务注入的当前用户 UUID 字符串。
         kb_id: 应用服务注入的会话知识库 UUID 字符串。
     Graph State 只保存能够写入 Checkpoint 的数据。数据库 Session、
-    Engine、模型和 Milvus 客户端都由节点运行时获取，不能放进这里。
+    Engine、模型和 Chroma 客户端都由节点运行时获取，不能放进这里。
     """
 
     user_id: NotRequired[str]

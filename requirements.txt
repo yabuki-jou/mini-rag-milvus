@@ -13,9 +13,9 @@ psycopg[binary]==3.3.4
 langchain-huggingface==1.2.2
 sentence-transformers==5.6.0
 
-## Milvus
-langchain-milvus==0.4.0
-pymilvus==3.0.0
+## Chroma HTTP 客户端
+# 服务端运行在独立 Docker 容器；API 只安装轻量客户端，不安装完整 Chroma 服务端依赖。
+chromadb-client==1.5.9
 
 pypdf
 python-docx

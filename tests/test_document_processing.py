@@ -39,7 +39,7 @@ def create_processing_records(
         kb_id=knowledge_base.id,
         filename="policy.txt",
         storage_path=str(Path("policy.txt").resolve()),
-        content_hash="a" * 64,
+        file_hash="a" * 64,
     )
     session.add(user)
     session.add(knowledge_base)

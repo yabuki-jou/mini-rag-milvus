@@ -1,13 +1,15 @@
-"""执行知识库范围内的向量检索、分数过滤和结果转换。"""
+"""执行知识库范围内的 Chroma 向量检索和结果转换。"""
 
 import logging
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Any
 from uuid import UUID
 
 from app.core.config import settings
 from app.core.errors import AppError
-from app.services.vector_service import get_vector_store
+from app.services.model_service import get_embeddings
+from app.services.vector_service import get_chunk_collection
 
 
 logger = logging.getLogger(__name__)
@@ -15,15 +17,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class RetrievedChunk:
-    """表示一个通过相似度阈值的内部检索结果。
+    """表示一个已按 Chroma cosine distance 排序的内部检索结果。
 
-    Attributes:
-        chunk_id: Chunk 的稳定 SHA-256 标识。
-        document_id: Chunk 所属文档的 UUID。
-        document_name: 用于来源展示的原文件名。
-        page: Chunk 所属的原始页码。
-        content: Chunk 的完整正文。
-        score: Milvus 返回的原始 COSINE 相似度。
+    ``score`` 是为保持既有 HTTP 契约而返回的 ``1 - distance``；只在
+    collection 使用 cosine 度量、且 BGE 输出已经归一化时可解释为相似度。
     """
 
     chunk_id: str
@@ -34,21 +31,39 @@ class RetrievedChunk:
     score: float
 
 
-def build_retrieval_filter(user_id: UUID, kb_id: UUID) -> str:
-    """构造限制用户和知识库范围的 Milvus 标量过滤表达式。
+def build_retrieval_filter(
+    user_id: UUID,
+    kb_id: UUID,
+) -> dict[str, list[dict[str, str]]]:
+    """构造必须在 Chroma 查询前执行的用户与知识库范围过滤条件。"""
+    return {
+        "$and": [
+            {"user_id": str(user_id)},
+            {"kb_id": str(kb_id)},
+        ]
+    }
 
-    Args:
-        user_id: 当前已验证用户的 UUID。
-        kb_id: 当前已通过所有权校验的知识库 UUID。
 
-    Returns:
-        同时包含 ``user_id`` 和 ``kb_id`` 的 Milvus 过滤表达式。
-    """
-    # 两个条件必须在 Milvus 搜索前生效，避免无权数据占用候选名额。
-    return (
-        f'user_id == "{user_id}" '
-        f'and kb_id == "{kb_id}"'
-    )
+def _first_query_values(
+    result: dict[str, Any],
+    field_name: str,
+) -> list[Any]:
+    """读取 Chroma 单查询返回的第一组列式字段，并检查结构完整性。"""
+    value = result.get(field_name)
+    if not isinstance(value, list) or len(value) != 1:
+        raise AppError(
+            status_code=500,
+            code="VECTOR_RESULT_INVALID",
+            message="Chroma 检索结果缺少必要字段。",
+        )
+    first_batch = value[0]
+    if not isinstance(first_batch, list):
+        raise AppError(
+            status_code=500,
+            code="VECTOR_RESULT_INVALID",
+            message="Chroma 检索结果缺少必要字段。",
+        )
+    return first_batch
 
 
 def retrieve_chunks(
@@ -56,123 +71,100 @@ def retrieve_chunks(
     kb_id: UUID,
     question: str,
 ) -> list[RetrievedChunk]:
-    """在指定用户和知识库范围内检索合格 Chunk。
-
-    Args:
-        user_id: 当前已验证用户的 UUID。
-        kb_id: 当前已通过所有权校验的知识库 UUID。
-        question: 已通过请求模型校验的自然语言问题。
-
-    Returns:
-        按相似度从高到低排列、最多 Top-N 个检索结果。
-
-    Raises:
-        AppError: Milvus 检索失败或返回数据缺少必要字段。
-    """
-
+    """在当前已授权知识库范围内检索并返回最多 Top-N 个 Chunk。"""
     retrieval_started_at = perf_counter()
-
-    # 在搜索前限制用户和知识库，避免无权数据进入候选结果。
-    retrieval_filter = build_retrieval_filter(
-        user_id=user_id,
-        kb_id=kb_id,
-    )
-    vector_store = get_vector_store()
+    retrieval_filter = build_retrieval_filter(user_id, kb_id)
 
     try:
-        # LangChain 会先用 BGE 生成问题向量，再执行 COSINE Top-K 检索。
-        search_results = vector_store.similarity_search_with_score(
-            query=question,
-            k=settings.retrieval_top_k,
-            expr=retrieval_filter,
-            param={
-                "metric_type": "COSINE",
-                "params": {},
-            },
+        # 薄客户端没有默认 Embedding；BGE 始终在 FastAPI 进程中生成查询向量。
+        query_embedding = get_embeddings().embed_query(question)
+        raw_result = get_chunk_collection().query(
+            query_embeddings=[query_embedding],
+            n_results=settings.retrieval_top_k,
+            where=retrieval_filter,
+            include=["documents", "metadatas", "distances"],
         )
     except AppError:
-        # 保留下层已经定义好的安全业务错误。
         raise
     except Exception as exc:
-        # 不把 Milvus 或 Embedding 的内部错误直接暴露给客户端。
         logger.exception(
-            "retrieval_failed user_id=%s kb_id=%s top_k=%s threshold=%.4f",
+            "chroma_search_failed user_id=%s kb_id=%s top_k=%s",
             user_id,
             kb_id,
             settings.retrieval_top_k,
-            settings.retrieval_score_threshold,
         )
         raise AppError(
             status_code=503,
-            code="MILVUS_SEARCH_FAILED",
-            message="知识库向量检索失败。",
+            code="VECTOR_UNAVAILABLE",
+            message="无法连接 Chroma 向量服务。",
         ) from exc
 
-    qualified_chunks: list[RetrievedChunk] = []
-    candidate_summaries: list[dict[str, str | float]] = []
+    try:
+        chunk_ids = _first_query_values(raw_result, "ids")
+        documents = _first_query_values(raw_result, "documents")
+        metadatas = _first_query_values(raw_result, "metadatas")
+        distances = _first_query_values(raw_result, "distances")
+    except AppError:
+        raise
 
-    # 只转换达到最低相似度的候选结果。
-    for document, raw_score in search_results:
-        try:
-            score = float(raw_score)
-        except (TypeError, ValueError) as exc:
-            raise AppError(
-                status_code=500,
-                code="MILVUS_RESULT_INVALID",
-                message="Milvus 返回了无效的相似度分数。",
-            ) from exc
-
-        # 日志只保存候选身份与分数，不重复记录可能包含敏感信息的正文。
-        candidate_summaries.append(
-            {
-                "chunk_id": str(document.metadata.get("chunk_id", "<missing>")),
-                "score": round(score, 6),
-            }
+    if not (
+        len(chunk_ids) == len(documents) == len(metadatas) == len(distances)
+    ):
+        raise AppError(
+            status_code=500,
+            code="VECTOR_RESULT_INVALID",
+            message="Chroma 检索结果列长度不一致。",
         )
 
-        # 使用小于号排除低分结果，因此等于阈值时仍会保留。
-        if score < settings.retrieval_score_threshold:
-            continue
-
+    qualified: list[tuple[float, RetrievedChunk]] = []
+    candidate_summaries: list[dict[str, str | float]] = []
+    for chunk_id, content, metadata, raw_distance in zip(
+        chunk_ids,
+        documents,
+        metadatas,
+        distances,
+        strict=True,
+    ):
         try:
-            metadata = document.metadata
-
-            # page_content 是 Chunk 正文，其余引用信息来自 Milvus 元数据。
+            distance = float(raw_distance)
+            if content is None or not isinstance(metadata, dict):
+                raise ValueError("missing content or metadata")
+            # cosine distance 越小越好；保留旧 API 的 score 字段，但不复用旧阈值。
+            score = 1.0 - distance
             retrieved_chunk = RetrievedChunk(
-                chunk_id=str(metadata["chunk_id"]),
+                chunk_id=str(chunk_id),
                 document_id=UUID(str(metadata["document_id"])),
                 document_name=str(metadata["document_name"]),
                 page=int(metadata["page"]),
-                content=document.page_content,
+                content=str(content),
                 score=score,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise AppError(
                 status_code=500,
-                code="MILVUS_RESULT_INVALID",
-                message="Milvus 检索结果缺少必要字段。",
+                code="VECTOR_RESULT_INVALID",
+                message="Chroma 检索结果缺少必要字段。",
             ) from exc
 
-        qualified_chunks.append(retrieved_chunk)
+        candidate_summaries.append(
+            {"chunk_id": retrieved_chunk.chunk_id, "distance": round(distance, 6)}
+        )
+        distance_threshold = settings.retrieval_distance_threshold
+        if distance_threshold is not None and distance > distance_threshold:
+            continue
+        qualified.append((distance, retrieved_chunk))
 
-    # 明确按照分数降序排列，不依赖向量库返回顺序。
-    qualified_chunks.sort(
-        key=lambda chunk: chunk.score,
-        reverse=True,
-    )
-
-    # 结果不足 Top-N 时直接返回已有结果，不使用低分 Chunk 补足。
-    final_chunks = qualified_chunks[: settings.retrieval_top_n]
+    # 不能依赖服务端返回顺序；明确按 distance 升序，距离相同时按稳定 ID 排序。
+    qualified.sort(key=lambda item: (item[0], item[1].chunk_id))
+    final_chunks = [chunk for _, chunk in qualified[: settings.retrieval_top_n]]
 
     logger.info(
-        "retrieval_complete user_id=%s kb_id=%s top_k=%s top_n=%s "
-        "threshold=%.4f candidates=%s prompt_chunk_ids=%s "
-        "duration_ms=%.2f",
+        "chroma_retrieval_complete user_id=%s kb_id=%s top_k=%s top_n=%s distance_threshold=%s candidates=%s prompt_chunk_ids=%s duration_ms=%.2f",
         user_id,
         kb_id,
         settings.retrieval_top_k,
         settings.retrieval_top_n,
-        settings.retrieval_score_threshold,
+        settings.retrieval_distance_threshold,
         candidate_summaries,
         [chunk.chunk_id for chunk in final_chunks],
         (perf_counter() - retrieval_started_at) * 1000,

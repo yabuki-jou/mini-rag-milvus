@@ -1,1 +1,1 @@
-"""Mini RAG Milvus 应用包。"""
+"""Mini RAG Handwrite 应用包。"""

@@ -288,7 +288,7 @@ def test_ask_question_rejects_without_calling_model(
     model_factory = Mock()
     save_exchange = Mock()
 
-    # 隔离数据库、Milvus 和 DeepSeek，只验证问答编排分支。
+    # 隔离数据库、Chroma 和 DeepSeek，只验证问答编排分支。
     monkeypatch.setattr(
         "app.services.chat_service.read_recent_messages",
         Mock(return_value=[]),

@@ -83,7 +83,7 @@ def parse_document_endpoint(
     session: SessionDep,
     document_id: UUID,
 ) -> Document:
-    """解析文档并将生成的 Chunk 写入 Milvus。
+    """解析文档并将生成的 Chunk 写入 Chroma。
 
     Args:
         document: 已通过知识库归属校验的文档。
@@ -125,7 +125,7 @@ def delete_document_endpoint(
         session: 当前请求使用的 SQLite Session。
 
     Raises:
-        AppError: 文档正在处理，或 Milvus、文件和数据库清理失败。
+        AppError: 文档正在处理，或 Chroma、文件和数据库清理失败。
     """
     # 不使用 OwnedDocumentDep：文档不存在时仍返回 204，支持安全重试。
     delete_document(

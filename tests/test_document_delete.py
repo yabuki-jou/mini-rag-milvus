@@ -80,7 +80,7 @@ def create_document_records(
         kb_id=knowledge_base.id,
         filename="policy.txt",
         storage_path="pending",
-        content_hash="a" * 64,
+        file_hash="a" * 64,
         status=document_status,
         chunk_count=2,
     )
@@ -282,11 +282,11 @@ def test_file_delete_failure_marks_document_delete_failed(
         assert document.error_message == "文档原文件删除失败。"
 
 
-def test_milvus_delete_failure_marks_document_delete_failed(
+def test_chroma_delete_failure_marks_document_delete_failed(
     document_api: tuple[TestClient, Engine, Path],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Milvus 清理失败时应保留原文件和可重试的文档记录。"""
+    """Chroma 清理失败时应保留原文件和可重试的文档记录。"""
     client, engine, storage_root = document_api
     user_id, kb_id, document_id, file_path = create_document_records(
         engine,
@@ -298,8 +298,8 @@ def test_milvus_delete_failure_marks_document_delete_failed(
         Mock(
             side_effect=AppError(
                 503,
-                "MILVUS_DELETE_FAILED",
-                "文档旧 Chunk 删除失败。",
+                "VECTOR_UNAVAILABLE",
+                "无法连接 Chroma 向量服务。",
             )
         ),
     )
@@ -310,7 +310,7 @@ def test_milvus_delete_failure_marks_document_delete_failed(
     )
 
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "MILVUS_DELETE_FAILED"
+    assert response.json()["error"]["code"] == "VECTOR_UNAVAILABLE"
     assert file_path.exists()
     with Session(engine) as session:
         document = session.get(Document, document_id)
@@ -318,25 +318,16 @@ def test_milvus_delete_failure_marks_document_delete_failed(
         assert document.status == DocumentStatus.DELETE_FAILED
 
 
-def test_milvus_delete_filter_contains_user_kb_and_document(
+def test_chroma_delete_filter_contains_user_kb_and_document(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """底层删除表达式必须同时限制用户、知识库和文档。"""
+    """底层 Chroma 删除必须同时限制用户、知识库和文档。"""
     user_id = UUID("00000000-0000-0000-0000-000000000001")
     kb_id = UUID("00000000-0000-0000-0000-000000000002")
     document_id = UUID("00000000-0000-0000-0000-000000000003")
-    milvus_client = Mock()
-    milvus_client.delete.return_value = {"delete_count": 2}
-    monkeypatch.setattr(
-        vector_service,
-        "ensure_chunk_collection",
-        lambda: settings.milvus_collection,
-    )
-    monkeypatch.setattr(
-        vector_service,
-        "get_milvus_client",
-        lambda: milvus_client,
-    )
+    collection = Mock()
+    collection.get.return_value = {"ids": ["chunk-a", "chunk-b"]}
+    monkeypatch.setattr(vector_service, "get_chunk_collection", lambda: collection)
 
     deleted_count = vector_service.delete_document_chunks(
         user_id=user_id,
@@ -345,12 +336,12 @@ def test_milvus_delete_filter_contains_user_kb_and_document(
     )
 
     assert deleted_count == 2
-    delete_filter = milvus_client.delete.call_args.kwargs["filter"]
-    assert delete_filter == (
-        f'user_id == "{user_id}" '
-        f'and kb_id == "{kb_id}" '
-        f'and document_id == "{document_id}"'
-    )
-    milvus_client.flush.assert_called_once_with(
-        collection_name=settings.milvus_collection
-    )
+    delete_filter = {
+        "$and": [
+            {"user_id": str(user_id)},
+            {"kb_id": str(kb_id)},
+            {"document_id": str(document_id)},
+        ]
+    }
+    collection.get.assert_called_once_with(where=delete_filter, include=[])
+    collection.delete.assert_called_once_with(where=delete_filter)

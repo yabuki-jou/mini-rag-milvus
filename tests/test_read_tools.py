@@ -83,7 +83,7 @@ def test_policy_tool_preserves_safe_retrieval_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """检索服务已经转换的安全业务错误不应被工具改写。"""
-    safe_error = AppError(503, "MILVUS_SEARCH_FAILED", "知识库向量检索失败。")
+    safe_error = AppError(503, "VECTOR_UNAVAILABLE", "无法连接 Chroma 向量服务。")
     monkeypatch.setattr(
         policy_tools,
         "retrieve_chunks",

@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.migration_service import upgrade_database
-from app.routers import agent, chat, documents, health, knowledge_bases, retrieval, users
+from app.routers import agent, chat, documents, health, knowledge_bases, projects, retrieval, users
 
 
 @asynccontextmanager
@@ -38,7 +38,11 @@ configure_logging(
 app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
-    description="从零手写的 FastAPI + LangChain + Milvus RAG 后端。",
+    description=(
+        "从零手写的 FastAPI + LangChain + Chroma RAG 后端。\n\n"
+        "智慧档案 V1 当前提供项目管理接口；内置清单仅为虚构演示规则，"
+        "不代表真实工程项目的法定或行业归档要求。"
+    ),
     lifespan=lifespan,
 )
 
@@ -50,6 +54,7 @@ register_exception_handlers(app)
 app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(knowledge_bases.router)
+app.include_router(projects.router)
 app.include_router(documents.router)
 app.include_router(retrieval.router)
 app.include_router(chat.router)

@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Self
 
+from psycopg import postgres
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,9 +25,11 @@ class Settings(BaseSettings):
         database_url: SQLModel 数据库连接地址。
         agent_checkpoint_file: LangGraph 执行状态使用的独立 SQLite 文件。
         file_storage_dir: 上传原文件的本地存储目录。
-        milvus_uri: Milvus 服务地址。
-        milvus_token: Milvus 认证令牌。
-        milvus_collection: 保存所有知识库 Chunk 的 Collection 名称。
+        chroma_host: Chroma HTTP 服务主机名。
+        chroma_port: Chroma HTTP 服务端口。
+        chroma_tenant: Chroma 服务端租户名称。
+        chroma_database: Chroma 租户内数据库名称。
+        chroma_collection: 保存既有知识库 Chunk 的 Chroma Collection 名称。
         embedding_model_path: 本地 BGE 模型目录。
         embedding_device: Embedding 运行设备。
         embedding_dimension: Embedding 模型输出的向量维度。
@@ -35,9 +38,9 @@ class Settings(BaseSettings):
         deepseek_api_key: DeepSeek API 密钥。
         deepseek_base_url: DeepSeek 的 OpenAI 兼容接口地址。
         deepseek_model: 生成回答所使用的模型名称。
-        retrieval_top_k: Milvus 第一轮最多召回的候选 Chunk 数量。
+        retrieval_top_k: Chroma 第一轮最多召回的候选 Chunk 数量。
         retrieval_top_n: 通过阈值后最多返回的 Chunk 数量。
-        retrieval_score_threshold: Chunk 进入最终结果所需的最低相似度。
+        retrieval_distance_threshold: 可选的最大 Chroma cosine 距离；未标定时为 ``None``。
     """
 
     # 从项目根目录读取 .env；忽略暂未使用的变量，且变量名不区分大小写。
@@ -49,21 +52,27 @@ class Settings(BaseSettings):
     )
 
     # 应用、PostgreSQL、Checkpoint SQLite 和原文件存储配置。
-    app_name: str = "Mini RAG Milvus"
+    app_name: str = "Mini RAG Handwrite"
     app_env: str = "development"
     log_file: Path = Path("./logs/app.log")
     log_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     log_backup_count: int = Field(default=5, ge=0)
+
+    postgres_db: str = "mini_rag"
+    postgres_user: str = "mini_rag"
+    postgres_password: str = "mini_rag"
     database_url: str = (
-        "postgresql+psycopg://mini_rag:mini_rag@localhost:5432/mini_rag"
+        f"postgresql+psycopg://{postgres_user}:{postgres_password}@localhost:5432/{postgres_db}"
     )
     agent_checkpoint_file: Path = Path("./data/agent_checkpoints.db")
     file_storage_dir: Path = Path("./data/files")
 
-    # Milvus 连接和单一 Chunk Collection 配置。
-    milvus_uri: str = "http://localhost:19530"
-    milvus_token: SecretStr | None = SecretStr("root:Milvus")
-    milvus_collection: str = "mini_rag_handwrite_chunks"
+    # Chroma 仅通过内部 HTTP 网络访问；本机调试只允许回环地址。
+    chroma_host: str = "localhost"
+    chroma_port: int = Field(default=8001, ge=1, le=65535)
+    chroma_tenant: str = "mini_rag_tenant"
+    chroma_database: str = "mini_rag_chroma"
+    chroma_collection: str = "mini_rag_knowledge_chunks_v1"
 
     # 本地 Embedding 模型及其输出维度配置。
     embedding_model_path: Path = Path(
@@ -81,14 +90,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     deepseek_model: str = "deepseek-chat"
 
-    # 检索时先召回 Top-K 个候选，再按相似度阈值过滤并截取 Top-N 个结果。
+    # 检索时先召回 Top-K 个候选；距离阈值须经固定验收集标定后才启用。
     retrieval_top_k: int = Field(default=10, gt=0)
     retrieval_top_n: int = Field(default=3, gt=0)
-    retrieval_score_threshold: float = Field(
-        default=0.50,
-        ge=-1.0,
-        le=1.0,
-    )
+    retrieval_distance_threshold: float | None = Field(default=None, ge=0.0)
 
     @field_validator("database_url")
     @classmethod
@@ -154,16 +159,6 @@ class Settings(BaseSettings):
     def agent_checkpoint_path(self) -> Path:
         """LangGraph Checkpoint SQLite 文件的绝对路径。"""
         return self.resolve_path(self.agent_checkpoint_file)
-
-    @property
-    def milvus_connection_args(self) -> dict[str, str]:
-        """构造 LangChain Milvus 和 PyMilvus 共用的连接参数。"""
-        # token 仅在确实配置时传入，并在取值前始终由 SecretStr 保存。
-        args: dict[str, str] = {"uri": self.milvus_uri}
-        if self.milvus_token is not None:
-            args["token"] = self.milvus_token.get_secret_value()
-        return args
-
 
 @lru_cache
 def get_settings() -> Settings:

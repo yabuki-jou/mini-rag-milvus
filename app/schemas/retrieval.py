@@ -30,7 +30,7 @@ class RetrievalResultRead(BaseModel):
         document_name: 用于来源展示的原文件名。
         page: Chunk 所属的原始页码，从 1 开始。
         content: Chunk 的完整正文。
-        score: Milvus 返回的原始 COSINE 相似度。
+        score: 兼容既有接口的 ``1 - Chroma cosine distance`` 分数。
     """
 
     # 允许从服务层 RetrievedChunk dataclass 的同名属性创建响应模型。

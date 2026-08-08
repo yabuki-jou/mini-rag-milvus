@@ -15,9 +15,9 @@ class DocumentRead(BaseModel):
         id: 文档的全局唯一标识。
         kb_id: 文档所属知识库的 ID。
         filename: 已清理目录部分的原文件名。
-        content_hash: 原文件内容的 SHA-256 摘要。
+        file_hash: 原文件内容的 SHA-256 摘要。
         status: 文档当前处理状态。
-        chunk_count: 已成功写入 Milvus 的 Chunk 数量。
+        chunk_count: 已成功写入 Chroma 的 Chunk 数量。
         error_message: 最近一次处理失败的安全错误摘要。
         created_at: 文档记录的创建时间。
         updated_at: 文档记录最后一次更新时间。
@@ -28,7 +28,7 @@ class DocumentRead(BaseModel):
     id: UUID
     kb_id: UUID
     filename: str
-    content_hash: str
+    file_hash: str
     status: DocumentStatus
     chunk_count: int
     error_message: str | None

@@ -87,7 +87,7 @@ def embed_chunks(
             message="Chunk 向量生成失败。",
         )
 
-    # 校验每个向量的维度是否与 Milvus Collection 配置一致。
+    # 校验每个向量的维度是否与 Chroma Collection 已冻结的模型维度一致。
     if any(len(vector) != settings.embedding_dimension for vector in vectors):
         raise AppError(
             status_code=500,

@@ -6,9 +6,11 @@
 
 ## 项目定位
 
-本项目是个人学习为主、可供朋友小范围使用的企业知识库与只读 Agent 后端，使用 FastAPI、SQLModel、PostgreSQL、LangChain、LangGraph、本地 BGE、Milvus 和 DeepSeek。Swagger 是当前唯一操作界面，不以公开多用户网站为部署目标。
+本项目是个人学习为主、可供朋友小范围使用的企业知识库与只读 Agent 后端，使用 FastAPI、SQLModel、PostgreSQL、LangChain、LangGraph、本地 BGE、Chroma 和 DeepSeek。Swagger 是当前唯一操作界面，不以公开多用户网站为部署目标。当前运行与开发基线均为本地环境；是否部署到云端、部署拓扑和资源规格均为暂定事项，必须在 V1 功能开发完成后另行评估和确认。Chroma 代码和 Compose 迁移已完成本地验证；不得把历史云主机实验或本地健康检查写成已完成云端部署。
 
-现有能力包括 RAG 后端、PostgreSQL/Alembic 业务库、制度检索工具，以及带 SQLite Checkpointer 的单 Agent Graph。独立 Agent API 支持会话、消息、历史和脱敏工具日志查询。员工请假领域、写工具、人工确认与决定接口已经删除；工程标书解析、生成与合规审查只是后续方向，在完成需求和验证前不得写成现有能力。完整登录认证仍未实现。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
+现有能力包括 RAG 后端、PostgreSQL/Alembic 业务库、制度检索工具，以及带 SQLite Checkpointer 的单 Agent Graph。独立 Agent API 支持会话、消息、历史和脱敏工具日志查询。员工请假领域、写工具、人工确认与决定接口已经删除。当前唯一后续业务方向是“智慧档案与企业文档智能”：需求、架构、数据库、API 与实施计划基线已确认；AV1-P01 Parser 规则冻结、AV1-P02 虚构验收资料与 Ground Truth、AV1-P03 数据库/模型/公共授权基础、P04 前置模型分层，以及 P04.1 项目 CRUD/模板复制 API 均已完成。`0005_archive_v1_schema`～`0008_legacy_business_comments` 已在目标 PostgreSQL 空库实际前向迁移；`0009_chroma_vector_comments` 仅更新 PostgreSQL 注释、尚待真实库迁移验证。清单项 CRUD 与派生状态、正式归档状态机、Chroma Final 索引和端到端验收尚未实现。当前不推进标书投标、标书解析生成或投标合规审查方向。完整登录认证仍未实现。当前不包含前端、OCR、表格专用解析、混合检索、Rerank、多 Agent、Redis 任务队列和生产级分布式部署。
+
+全量 Chroma 迁移（旧制度检索和后续智慧档案）已确认；AV1-C01 已完成一次云主机上的 Chroma 独立内网、过滤、精确删除、容器重启持久化与空闲资源实验，AV1-C02 已完成运行时代码、离线单测、本机命名空间和本机 Docker 健康验证。云端完整栈资源验证不再阻塞当前开发，随部署决策一并暂缓至 V1 功能完成后。后续正式索引为 Chroma Final Collection；不得将历史 Milvus 验证、C01 空闲内存或本机健康检查写成完整部署通过。
 
 ## 企业知识库 Agent 当前范围
 
@@ -25,14 +27,14 @@ search_company_policy      查询当前会话绑定知识库中的公司制度
 ```text
 用户消息 → 校验 Agent 会话授权范围
 → DeepSeek 判断是否调用制度检索工具
-→ 工具使用服务端注入的 user_id + kb_id 检索 Milvus
+→ 工具使用服务端注入的 user_id + kb_id 检索 Chroma
 → DeepSeek 仅依据工具结果回答
 → 返回引用并把脱敏调用记录写入 PostgreSQL
 ```
 
-当前状态以 `docs/implementation-plan.md` 和本次实际验证为准。历史 `89 passed` 结果属于已删除请假领域的旧版本，不得作为当前版本测试结论。真实 BGE + Milvus + DeepSeek 单问题结果仍只证明当时的有限链路，不代表当前 PostgreSQL 部署或多文档质量已经复验。
+既有制度检索 Agent 的状态以 `docs/implementation-plan.md` 和本次实际验证为准；智慧档案 V1 的状态以 `docs/archive-v1-implementation-plan.md` 和本次实际验证为准。历史 `89 passed` 结果属于已删除请假领域的旧版本，不得作为当前版本测试结论。真实 BGE + Milvus + DeepSeek 单问题结果仍只证明当时的有限链路，不代表当前 PostgreSQL 部署或多文档质量已经复验。
 
-验证边界：真实 BGE + Milvus + DeepSeek 结果只证明了当前测试知识库中的单文档、单问题链路可用，尚未完成多文档 10 问的整体召回质量评测。测试时通过进程级配置覆盖使用了实际存在的模型目录；项目 `.env` 中的持久化路径仍需改为从项目根目录可解析的 `../../py-doc/py-doc-deepseek-server/models/bge-small-zh-v1.5`，在实际修改并复验前不得宣称该配置问题已解决。
+验证边界：真实 BGE + Milvus + DeepSeek 的历史结果只证明当时的单文档、单问题链路；它不能证明 Chroma 或 2 vCPU / 2 GB 云端部署可用。若后续决定云端部署，必须重新完成并记录 Chroma 的内部网络、持久化、隔离、删除和资源可行性验证；本地 BGE 的持久化路径也需在实际配置修改后复验。
 
 详细需求、数据与接口分别以 `docs/requirements.md`、`database-design.md` 和 `api-design.md` 为准；实时进度以 `LEARNING_PLAN.md` 为准。正式企业知识库 Agent 位于 `app/agents/admin/`。
 
@@ -52,7 +54,7 @@ search_company_policy      查询当前会话绑定知识库中的公司制度
 
 ```text
 Router → Application Service → Agent / Domain Service
-→ SQLModel、文件系统、Milvus、DeepSeek
+→ SQLModel、文件系统、Chroma、DeepSeek
 ```
 
 - `app/routers/`：HTTP 输入输出、状态码和依赖注入。
@@ -66,11 +68,11 @@ Router → Application Service → Agent / Domain Service
 
 ## 数据与安全规则
 
-- PostgreSQL 保存业务实体和状态；Milvus 保存 Chunk、引用元数据和向量；文件系统保存原文件。
+- PostgreSQL 保存业务实体和状态；Chroma 保存 Chunk、引用元数据和向量；文件系统保存原文件。
 - LangGraph Checkpoint 使用独立 SQLite 文件，只保存可序列化的执行状态和消息，不代替业务表。
-- `document_id` 必须贯穿 PostgreSQL、文件路径和 Milvus。
+- `document_id` 必须贯穿 PostgreSQL、文件路径和 Chroma。
 - 受保护接口必须先验证真实存在的 `X-User-ID` 和资源归属。
-- Milvus 检索必须包含 `user_id + kb_id`；文档删除必须再包含 `document_id`。
+- Chroma 检索必须包含 `user_id + kb_id`；文档删除必须再包含 `document_id`。当前本地开发中，Compose 内 API 使用内部网络访问 Chroma；宿主机调试仅可使用回环地址 `127.0.0.1:8001`，不得暴露到局域网或公网。业务客户端只能访问 FastAPI；未来云端网络拓扑待部署决策后确定。
 - 不接受客户端覆盖资源的 `owner_id` 或 `user_id`。
 - Agent 工具的 `user_id` 和 `kb_id` 必须由已验证上下文注入，不能由模型生成。
 - Agent Graph State 只能保存可序列化数据，不得保存数据库 Session、Engine、模型客户端或向量库客户端。
@@ -115,6 +117,6 @@ python -m compileall -q app tests
 - 改动对应明确需求编号和可验证结果。
 - 新行为覆盖正常、边界、异常和越权测试。
 - 运行相关测试、完整测试和 `compileall`。
-- API、SQLite、Milvus、README 与 `docs/` 保持一致。
+- API、SQLite、Chroma、README 与 `docs/` 保持一致。
 - 明确列出未实现、部分实现和当前环境无法验证的内容。
 - 提交前排除 `.env`、`data/`、`logs/`、IDE 临时文件和真实密钥。

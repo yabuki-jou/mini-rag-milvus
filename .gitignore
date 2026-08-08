@@ -6,8 +6,11 @@ __pycache__/
 *.db
 data/
 logs/
+tests/pytest_docs/
 docs/
 !docs/
 docs/*
 !docs/agent-guide.md
 !docs/agent-demo.md
+!docs/archive-v1-implementation-plan.md
+!docs/archive-v1-parser-design.md

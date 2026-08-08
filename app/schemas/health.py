@@ -20,7 +20,7 @@ class HealthResponse(BaseModel):
 
     Attributes:
         status: 全部正常时为 ``ok``，否则为 ``degraded``。
-        components: API、数据库、Milvus 和 Embedding 的独立状态。
+        components: API、数据库、Chroma 和 Embedding 的独立状态。
     """
 
     status: str

@@ -18,6 +18,15 @@ EXPECTED_BUSINESS_TABLES = {
     "chat_messages",
     "agent_sessions",
     "agent_tool_call_logs",
+    "projects",
+    "archive_documents",
+    "parsed_snapshots",
+    "archive_field_values",
+    "field_evidences",
+    "checklist_items",
+    "checklist_links",
+    "archive_operations",
+    "archive_audit_logs",
 }
 
 
@@ -41,6 +50,6 @@ def test_postgres_upgrade_reaches_head_without_leave_domain() -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0004_remove_leave_domain"
+    assert revision == "0009_chroma_vector_comments"
     command.check(build_alembic_config(POSTGRES_TEST_URL))
     engine.dispose()

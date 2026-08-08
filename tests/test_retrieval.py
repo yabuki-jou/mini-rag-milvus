@@ -1,4 +1,4 @@
-"""验证检索阈值、数据隔离、结果转换和安全异常。"""
+"""验证 Chroma 距离语义、数据隔离、结果转换和安全异常。"""
 
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -14,206 +14,157 @@ from app.services import retrieval_service
 from app.services.retrieval_service import RetrievedChunk
 
 
-def make_document(
-    *,
-    chunk_id: str,
-    document_id: UUID,
-    page: int,
-    content: str,
-) -> SimpleNamespace:
-    """构造与 LangChain Document 结构一致的轻量测试对象。"""
-    return SimpleNamespace(
-        page_content=content,
-        metadata={
-            "chunk_id": chunk_id,
-            "document_id": str(document_id),
-            "document_name": "policy.pdf",
-            "page": page,
-        },
-    )
+def make_query_result(
+    records: list[tuple[str, UUID, int, str, float]],
+) -> dict[str, list[list[object]]]:
+    """构造单问题 Chroma 查询的列式响应。"""
+    return {
+        "ids": [[record[0] for record in records]],
+        "documents": [[record[3] for record in records]],
+        "metadatas": [
+            [
+                {
+                    "document_id": str(record[1]),
+                    "document_name": "policy.pdf",
+                    "page": record[2],
+                }
+                for record in records
+            ]
+        ],
+        "distances": [[record[4] for record in records]],
+    }
 
 
 def test_build_retrieval_filter_contains_user_and_kb() -> None:
-    """过滤表达式必须同时限制用户和知识库。"""
+    """范围过滤必须同时限制用户和知识库。"""
     user_id = uuid4()
     kb_id = uuid4()
 
-    result = retrieval_service.build_retrieval_filter(user_id, kb_id)
+    assert retrieval_service.build_retrieval_filter(user_id, kb_id) == {
+        "$and": [
+            {"user_id": str(user_id)},
+            {"kb_id": str(kb_id)},
+        ]
+    }
 
-    assert result == (
-        f'user_id == "{user_id}" '
-        f'and kb_id == "{kb_id}"'
-    )
 
-
-def test_retrieve_chunks_applies_threshold_order_and_top_n(
+def test_retrieve_chunks_orders_by_distance_and_keeps_api_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """等于阈值的结果应保留，低分应过滤，最终按分数截取。"""
+    """Chroma cosine distance 越小越相关，旧 score 字段返回 1-distance。"""
     user_id = uuid4()
     kb_id = uuid4()
     document_id = uuid4()
-    vector_store = Mock()
-    vector_store.similarity_search_with_score.return_value = [
-        (
-            make_document(
-                chunk_id="a" * 64,
-                document_id=document_id,
-                page=1,
-                content="阈值边界",
-            ),
-            0.50,
-        ),
-        (
-            make_document(
-                chunk_id="b" * 64,
-                document_id=document_id,
-                page=2,
-                content="最高分",
-            ),
-            0.90,
-        ),
-        (
-            make_document(
-                chunk_id="c" * 64,
-                document_id=document_id,
-                page=3,
-                content="低于阈值",
-            ),
-            0.49,
-        ),
-        (
-            make_document(
-                chunk_id="d" * 64,
-                document_id=document_id,
-                page=4,
-                content="第二名",
-            ),
-            0.80,
-        ),
-    ]
+    collection = Mock()
+    collection.query.return_value = make_query_result(
+        [
+            ("a" * 64, document_id, 1, "较远", 0.50),
+            ("b" * 64, document_id, 2, "最近", 0.10),
+            ("c" * 64, document_id, 3, "更远", 0.51),
+            ("d" * 64, document_id, 4, "第二近", 0.20),
+        ]
+    )
+    embeddings = SimpleNamespace(embed_query=Mock(return_value=[1.0, 0.0]))
 
-    # 固定测试参数，避免本机 .env 改变测试预期。
     monkeypatch.setattr(settings, "retrieval_top_k", 10)
     monkeypatch.setattr(settings, "retrieval_top_n", 2)
-    monkeypatch.setattr(settings, "retrieval_score_threshold", 0.50)
-    monkeypatch.setattr(
-        retrieval_service,
-        "get_vector_store",
-        lambda: vector_store,
-    )
+    monkeypatch.setattr(settings, "retrieval_distance_threshold", None)
+    monkeypatch.setattr(retrieval_service, "get_embeddings", lambda: embeddings)
+    monkeypatch.setattr(retrieval_service, "get_chunk_collection", lambda: collection)
 
-    results = retrieval_service.retrieve_chunks(
-        user_id=user_id,
-        kb_id=kb_id,
-        question="测试问题",
-    )
+    results = retrieval_service.retrieve_chunks(user_id, kb_id, "测试问题")
 
+    assert [result.chunk_id for result in results] == ["b" * 64, "d" * 64]
     assert [result.score for result in results] == [0.90, 0.80]
-    call_kwargs = vector_store.similarity_search_with_score.call_args.kwargs
-    assert call_kwargs["k"] == 10
-    assert f'user_id == "{user_id}"' in call_kwargs["expr"]
-    assert f'kb_id == "{kb_id}"' in call_kwargs["expr"]
+    assert collection.query.call_args.kwargs == {
+        "query_embeddings": [[1.0, 0.0]],
+        "n_results": 10,
+        "where": {
+            "$and": [
+                {"user_id": str(user_id)},
+                {"kb_id": str(kb_id)},
+            ]
+        },
+        "include": ["documents", "metadatas", "distances"],
+    }
 
 
-def test_retrieve_chunks_keeps_score_equal_to_threshold(
+def test_retrieve_chunks_applies_distance_threshold_when_calibrated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """相似度等于阈值时必须保留该 Chunk。"""
+    """配置阈值后，距离等于上限保留，较大的距离必须过滤。"""
     document_id = uuid4()
-    vector_store = Mock()
-    vector_store.similarity_search_with_score.return_value = [
-        (
-            make_document(
-                chunk_id="a" * 64,
-                document_id=document_id,
-                page=1,
-                content="边界结果",
-            ),
-            0.50,
-        )
-    ]
-    monkeypatch.setattr(settings, "retrieval_score_threshold", 0.50)
+    collection = Mock()
+    collection.query.return_value = make_query_result(
+        [
+            ("a" * 64, document_id, 1, "阈值边界", 0.50),
+            ("b" * 64, document_id, 2, "超过阈值", 0.51),
+        ]
+    )
+    monkeypatch.setattr(settings, "retrieval_distance_threshold", 0.50)
     monkeypatch.setattr(settings, "retrieval_top_n", 3)
     monkeypatch.setattr(
         retrieval_service,
-        "get_vector_store",
-        lambda: vector_store,
+        "get_embeddings",
+        lambda: SimpleNamespace(embed_query=lambda _: [1.0, 0.0]),
     )
+    monkeypatch.setattr(retrieval_service, "get_chunk_collection", lambda: collection)
 
-    results = retrieval_service.retrieve_chunks(
-        user_id=uuid4(),
-        kb_id=uuid4(),
-        question="边界测试",
-    )
+    results = retrieval_service.retrieve_chunks(uuid4(), uuid4(), "边界测试")
 
-    assert len(results) == 1
+    assert [result.chunk_id for result in results] == ["a" * 64]
     assert results[0].score == 0.50
 
 
-def test_retrieve_chunks_returns_empty_list_for_low_scores(
+def test_retrieve_chunks_maps_chroma_failure_to_safe_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """没有候选达到阈值时应返回空列表而不是补足 Top-N。"""
-    document_id = uuid4()
-    vector_store = Mock()
-    vector_store.similarity_search_with_score.return_value = [
-        (
-            make_document(
-                chunk_id="a" * 64,
-                document_id=document_id,
-                page=1,
-                content="无关结果",
-            ),
-            0.20,
-        )
-    ]
-    monkeypatch.setattr(settings, "retrieval_score_threshold", 0.50)
+    """Chroma 断连不能把内部地址或异常直接返回客户端。"""
+    collection = Mock()
+    collection.query.side_effect = RuntimeError("http://internal-chroma:8000 secret")
     monkeypatch.setattr(
         retrieval_service,
-        "get_vector_store",
-        lambda: vector_store,
+        "get_embeddings",
+        lambda: SimpleNamespace(embed_query=lambda _: [1.0, 0.0]),
     )
-
-    results = retrieval_service.retrieve_chunks(
-        user_id=uuid4(),
-        kb_id=uuid4(),
-        question="无答案问题",
-    )
-
-    assert results == []
-
-
-def test_retrieve_chunks_converts_search_failure_to_safe_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """底层检索异常应转换为不泄露内部细节的 AppError。"""
-    vector_store = Mock()
-    vector_store.similarity_search_with_score.side_effect = RuntimeError(
-        "internal secret"
-    )
-    monkeypatch.setattr(
-        retrieval_service,
-        "get_vector_store",
-        lambda: vector_store,
-    )
+    monkeypatch.setattr(retrieval_service, "get_chunk_collection", lambda: collection)
 
     with pytest.raises(AppError) as exc_info:
-        retrieval_service.retrieve_chunks(
-            user_id=uuid4(),
-            kb_id=uuid4(),
-            question="异常测试",
-        )
+        retrieval_service.retrieve_chunks(uuid4(), uuid4(), "异常测试")
 
     assert exc_info.value.status_code == 503
-    assert exc_info.value.code == "MILVUS_SEARCH_FAILED"
-    assert "internal secret" not in exc_info.value.message
+    assert exc_info.value.code == "VECTOR_UNAVAILABLE"
+    assert "internal-chroma" not in exc_info.value.message
+
+
+def test_retrieve_chunks_rejects_invalid_result_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chroma 列式响应长度不一致时不能拼错引用与正文。"""
+    collection = Mock()
+    collection.query.return_value = {
+        "ids": [["a" * 64]],
+        "documents": [["正文"]],
+        "metadatas": [[]],
+        "distances": [[0.1]],
+    }
+    monkeypatch.setattr(
+        retrieval_service,
+        "get_embeddings",
+        lambda: SimpleNamespace(embed_query=lambda _: [1.0, 0.0]),
+    )
+    monkeypatch.setattr(retrieval_service, "get_chunk_collection", lambda: collection)
+
+    with pytest.raises(AppError) as exc_info:
+        retrieval_service.retrieve_chunks(uuid4(), uuid4(), "结构异常")
+
+    assert exc_info.value.code == "VECTOR_RESULT_INVALID"
 
 
 def test_retrieval_endpoint_converts_internal_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """路由应把内部结果转换为包含问题和来源的响应模型。"""
+    """路由仍把内部结果转换为包含问题和来源的既有响应契约。"""
     user_id = uuid4()
     kb_id = uuid4()
     document_id = uuid4()
@@ -225,11 +176,7 @@ def test_retrieval_endpoint_converts_internal_results(
         content="制度正文",
         score=0.75,
     )
-    monkeypatch.setattr(
-        retrieval_router,
-        "retrieve_chunks",
-        lambda **_: [internal_result],
-    )
+    monkeypatch.setattr(retrieval_router, "retrieve_chunks", lambda **_: [internal_result])
 
     response = retrieval_router.retrieval_test_endpoint(
         current_user=SimpleNamespace(id=user_id),

@@ -68,7 +68,7 @@ async def create_uploaded_document(
         kb_id=knowledge_base.id,
         filename=stored_file.filename,
         storage_path=str(stored_file.path),
-        content_hash=stored_file.content_hash,
+        file_hash=stored_file.content_hash,
     )
     # 数据库写入失败时同时回滚事务并清理已保存的孤立文件。
     try:
@@ -92,7 +92,7 @@ def process_document(
     knowledge_base: KnowledgeBase,
     session: Session,
 ) -> Document:
-    """解析文档、生成向量并同步写入 Milvus。
+    """解析文档、生成向量并同步写入 Chroma。
 
     Args:
         document: 已通过知识库归属校验的文档。
@@ -152,7 +152,7 @@ def process_document(
             perf_counter() - embedding_started_at
         ) * 1000
 
-        # 将向量、正文、归属信息和引用位置统一写入 Milvus。
+        # 将向量、正文、归属信息和引用位置统一写入 Chroma。
         insert_started_at = perf_counter()
         chunk_count = insert_chunks(
             user_id=knowledge_base.owner_id,
@@ -163,7 +163,7 @@ def process_document(
         )
         insert_duration_ms = (perf_counter() - insert_started_at) * 1000
 
-        # Milvus 写入成功后再提交 READY，保证 SQLite 状态与向量库一致。
+        # Chroma 写入成功后再提交 READY，保证业务状态与向量库一致。
         document.status = DocumentStatus.READY
         document.chunk_count = chunk_count
         document.error_message = None
@@ -269,7 +269,7 @@ def delete_document(
     knowledge_base: KnowledgeBase,
     session: Session,
 ) -> bool:
-    """幂等删除文档的 Milvus Chunk、原文件和 SQLite 记录。
+    """幂等删除文档的 Chroma Chunk、原文件和业务记录。
 
     Args:
         document_id: 请求路径中的文档 UUID。
